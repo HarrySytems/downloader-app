@@ -1,0 +1,17 @@
+{
+  "name": "ByteDownloader HD",
+  "short_name": "ByteDownloader",
+  "description": "Descarga videos e historias de TikTok y X (Twitter) en la más alta calidad sin marca de agua.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#3b82f6",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}
