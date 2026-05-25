@@ -12,68 +12,6 @@ import http.cookiejar
 import re
 import base64
 import json
-import random
-
-proxy_pool = []
-
-async def refresh_proxies_loop():
-    global proxy_pool
-    while True:
-        try:
-            print("Background updating proxy pool...")
-            urls = [
-                "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
-                "https://www.proxy-list.download/api/v1/get?type=http",
-                "https://www.proxy-list.download/api/v1/get?type=https"
-            ]
-            new_proxies = set()
-            async with httpx.AsyncClient() as client:
-                for url in urls:
-                    try:
-                        resp = await client.get(url, timeout=10.0)
-                        if resp.status_code == 200:
-                            lines = resp.text.replace("\r", "").split("\n")
-                            for line in lines:
-                                line = line.strip()
-                                if line and ":" in line:
-                                    parts = line.split(":")
-                                    if len(parts) == 2 and parts[0].replace(".", "").isdigit() and parts[1].isdigit():
-                                        new_proxies.add(line)
-                    except Exception as e:
-                        print(f"Error fetching from {url}: {e}")
-            if new_proxies:
-                proxy_pool = list(new_proxies)
-                print(f"Proxy pool updated: {len(proxy_pool)} proxies loaded.")
-        except Exception as e:
-            print(f"Proxy refresh loop exception: {e}")
-        await asyncio.sleep(1800)
-
-def post_with_proxy(api_url, headers, data, timeout=10.0):
-    global proxy_pool
-    local_pool = list(proxy_pool)
-    random.shuffle(local_pool)
-    
-    for proxy in local_pool[:5]:
-        try:
-            proxies = {
-                "http://": f"http://{proxy}",
-                "https://": f"http://{proxy}"
-            }
-            with httpx.Client(proxies=proxies, verify=False) as client:
-                resp = client.post(api_url, headers=headers, data=data, timeout=timeout)
-                if resp.status_code == 200:
-                    print(f"Successful request to {api_url} using proxy {proxy}")
-                    return resp
-        except Exception as e:
-            try:
-                if proxy in proxy_pool:
-                    proxy_pool.remove(proxy)
-            except:
-                pass
-                
-    print(f"All proxies failed or pool empty. Falling back to direct connection for {api_url}...")
-    with httpx.Client() as client:
-        return client.post(api_url, headers=headers, data=data, timeout=timeout)
 
 def fetch_tikvid_hd_py(tiktok_url: str, format_preference: str = "h264") -> dict:
     try:
@@ -89,15 +27,16 @@ def fetch_tikvid_hd_py(tiktok_url: str, format_preference: str = "h264") -> dict
             "q": tiktok_url,
             "lang": "en"
         }
-        resp = post_with_proxy(api_url, headers, data, timeout=10.0)
-        if resp.status_code != 200:
-            print(f"TikVid Python scrape failed with status: {resp.status_code}")
-            return None
-            
-        res_json = resp.json()
-        if res_json.get("status") != "ok" or not res_json.get("data"):
-            print("TikVid response status not ok")
-            return None
+        with httpx.Client() as client:
+            resp = client.post(api_url, headers=headers, data=data, timeout=10.0)
+            if resp.status_code != 200:
+                print(f"TikVid Python scrape failed with status: {resp.status_code}")
+                return None
+                
+            res_json = resp.json()
+            if res_json.get("status") != "ok" or not res_json.get("data"):
+                print("TikVid response status not ok")
+                return None
             
         html_data = res_json.get("data", "")
         
@@ -176,15 +115,16 @@ def fetch_snapvid_hd_py(tiktok_url: str, format_preference: str = "h264") -> dic
             "v": "v2",
             "lang": "en"
         }
-        resp = post_with_proxy(api_url, headers, data, timeout=10.0)
-        if resp.status_code != 200:
-            print(f"SnapVid Python scrape failed with status: {resp.status_code}")
-            return None
-            
-        res_json = resp.json()
-        if res_json.get("status") != "ok" or not res_json.get("data"):
-            print("SnapVid response status not ok")
-            return None
+        with httpx.Client() as client:
+            resp = client.post(api_url, headers=headers, data=data, timeout=10.0)
+            if resp.status_code != 200:
+                print(f"SnapVid Python scrape failed with status: {resp.status_code}")
+                return None
+                
+            res_json = resp.json()
+            if res_json.get("status") != "ok" or not res_json.get("data"):
+                print("SnapVid response status not ok")
+                return None
             
         html_data = res_json.get("data", "")
         
@@ -263,9 +203,6 @@ stream_cache = {}
 
 @app.on_event("startup")
 async def startup_event():
-    # Start the proxy refresh loop in the background
-    asyncio.create_task(refresh_proxies_loop())
-    
     # Unir todas las cookies en un solo archivo master cuando el servidor inicia
     cookie_files = ["www.tiktok.com_cookies.txt"]
     master_cookie_content = "# Netscape HTTP Cookie File\n"
