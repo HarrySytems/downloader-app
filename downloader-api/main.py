@@ -9,7 +9,6 @@ import asyncio
 import urllib.parse
 import httpx
 import http.cookiejar
-import requests
 import re
 import base64
 import json
@@ -28,15 +27,16 @@ def fetch_tikvid_hd_py(tiktok_url: str) -> dict:
             "q": tiktok_url,
             "lang": "en"
         }
-        resp = requests.post(api_url, headers=headers, data=data, timeout=10)
-        if resp.status_code != 200:
-            print(f"TikVid Python scrape failed with status: {resp.status_code}")
-            return None
-            
-        res_json = resp.json()
-        if res_json.get("status") != "ok" or not res_json.get("data"):
-            print("TikVid response status not ok")
-            return None
+        with httpx.Client() as client:
+            resp = client.post(api_url, headers=headers, data=data, timeout=10.0)
+            if resp.status_code != 200:
+                print(f"TikVid Python scrape failed with status: {resp.status_code}")
+                return None
+                
+            res_json = resp.json()
+            if res_json.get("status") != "ok" or not res_json.get("data"):
+                print("TikVid response status not ok")
+                return None
             
         html_data = res_json.get("data", "")
         
