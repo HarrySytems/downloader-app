@@ -44,6 +44,25 @@ async def startup_event():
 
 class ExtractRequest(BaseModel):
     url: str
+    format_preference: str = "h264"
+
+async def clean_tiktok_url(url: str) -> str:
+    url = url.strip()
+    if "tiktok.com" in url:
+        if "/photo/" in url:
+            url = url.replace("/photo/", "/video/")
+        if "vm.tiktok.com" in url or "vt.tiktok.com" in url or "v.tiktok.com" in url:
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(url, follow_redirects=True, headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    })
+                    url = str(resp.url)
+            except Exception as e:
+                print(f"Error resolving TikTok redirect: {e}")
+        if "?" in url:
+            url = url.split("?")[0]
+    return url
 
 # ----------------- RUTA ESTABLE DE SIEMPRE (BASADA EN DISCO) -----------------
 
@@ -58,19 +77,16 @@ def delete_file(file_path: str):
 
 @app.post("/api/extract")
 async def extract_info(req: ExtractRequest, background_tasks: BackgroundTasks, request: Request):
-    url = req.url
+    url = await clean_tiktok_url(req.url)
     
-    # Limpiar URLs de TikTok
-    if "tiktok.com" in url:
-        if "/photo/" in url:
-            url = url.replace("/photo/", "/video/")
-            
-    # Forzar la descarga del formato H.264 (AVC) compatible para garantizar audio y evitar transcoding lento
     file_id = str(uuid.uuid4())
     output_filename = f"video_{file_id}.mp4"
     
+    # Seleccionar formato según la preferencia de calidad
+    fmt_str = 'bestvideo+bestaudio/best' if req.format_preference == 'best' else 'bestvideo[vcodec*=h264]+bestaudio/best[vcodec*=h264]/best'
+    
     ydl_opts = {
-        'format': 'bestvideo[vcodec*=h264]+bestaudio/best[vcodec*=h264]/best',
+        'format': fmt_str,
         'outtmpl': output_filename,
         'merge_output_format': 'mp4',
     }
@@ -133,15 +149,13 @@ async def serve_file(filename: str, background_tasks: BackgroundTasks):
 
 @app.post("/api/extract-stream")
 async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundTasks, request: Request):
-    url = req.url
+    url = await clean_tiktok_url(req.url)
     
-    # Limpiar URLs de TikTok
-    if "tiktok.com" in url:
-        if "/photo/" in url:
-            url = url.replace("/photo/", "/video/")
-            
+    # Seleccionar formato según la preferencia de calidad
+    fmt_str = 'bestvideo+bestaudio/best' if req.format_preference == 'best' else 'bestvideo[vcodec*=h264]+bestaudio/best[vcodec*=h264]/best'
+    
     ydl_opts = {
-        'format': 'bestvideo[vcodec*=h264]+bestaudio/best[vcodec*=h264]/best',
+        'format': fmt_str,
     }
     
     if os.path.exists("master_cookies.txt"):

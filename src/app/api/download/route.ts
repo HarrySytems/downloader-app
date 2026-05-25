@@ -118,12 +118,20 @@ export async function POST(request: Request) {
       try {
         const hfApiUrl = 'https://veterano901-servidorpropio.hf.space/api/extract-stream';
         
+        // Detectar si el usuario está en móvil o tablet para elegir el formato ideal
+        const userAgent = request.headers.get('user-agent') || '';
+        const isMobile = /mobile|android|iphone|ipad/i.test(userAgent);
+        const formatPreference = isMobile ? 'best' : 'h264';
+        
         const response = await fetch(hfApiUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ url })
+          body: JSON.stringify({ 
+            url,
+            format_preference: formatPreference
+          })
         });
         
         if (!response.ok) {
