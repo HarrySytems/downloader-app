@@ -20,14 +20,10 @@ proxy_pool = []
 
 def is_proxy_alive(proxy: str) -> bool:
     try:
-        proxies = {
-            "http://": f"http://{proxy}",
-            "https://": f"http://{proxy}"
-        }
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
-        with httpx.Client(proxies=proxies, verify=False, headers=headers) as client:
+        with httpx.Client(proxy=f"http://{proxy}", verify=False, headers=headers) as client:
             # Probar contra google.com para verificar si el proxy está vivo y responde rápido
             resp = client.get("https://www.google.com", timeout=1.5)
             if resp.status_code == 200:
@@ -107,11 +103,7 @@ def post_with_proxy(api_url, headers, data, timeout=10.0):
     
     if valid_proxy:
         try:
-            proxies = {
-                "http://": f"http://{valid_proxy}",
-                "https://": f"http://{valid_proxy}"
-            }
-            with httpx.Client(proxies=proxies, verify=False) as client:
+            with httpx.Client(proxy=f"http://{valid_proxy}", verify=False) as client:
                 resp = client.post(api_url, headers=headers, data=data, timeout=timeout)
                 if resp.status_code == 200:
                     print(f"Successful request to {api_url} using validated proxy {valid_proxy}")
