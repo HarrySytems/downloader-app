@@ -114,9 +114,9 @@ export async function POST(request: Request) {
         console.error('TikWM slideshow check error:', err);
       }
 
-      // Fallback: Si es un video normal o si TikWM falla, usamos el motor en Hugging Face (Full HD)
+      // Fallback: Si es un video normal o si TikWM falla, usamos el motor en AWS EC2 (Full HD)
       try {
-        const hfApiUrl = 'https://veterano901-servidorpropio.hf.space/api/extract-stream';
+        const hfApiUrl = 'http://3.19.208.2:8000/api/extract-stream';
         
         // Detectar si el usuario está en móvil o tablet para elegir el formato ideal
         const userAgent = request.headers.get('user-agent') || '';
