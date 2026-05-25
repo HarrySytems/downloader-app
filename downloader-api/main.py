@@ -9,6 +9,85 @@ import asyncio
 import urllib.parse
 import httpx
 import http.cookiejar
+import requests
+import re
+import base64
+import json
+
+def fetch_tikvid_hd_py(tiktok_url: str) -> dict:
+    try:
+        api_url = "https://tikvid.io/api/ajaxSearch"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+            "Origin": "https://tikvid.io",
+            "Referer": "https://tikvid.io/en"
+        }
+        data = {
+            "q": tiktok_url,
+            "lang": "en"
+        }
+        resp = requests.post(api_url, headers=headers, data=data, timeout=10)
+        if resp.status_code != 200:
+            print(f"TikVid Python scrape failed with status: {resp.status_code}")
+            return None
+            
+        res_json = resp.json()
+        if res_json.get("status") != "ok" or not res_json.get("data"):
+            print("TikVid response status not ok")
+            return None
+            
+        html_data = res_json.get("data", "")
+        
+        # Extract thumbnail
+        img_match = re.search(r'<img[^>]+src="([^"]+)"', html_data)
+        thumbnail = img_match.group(1).replace('&amp;', '&') if img_match else ""
+        
+        # Extract title
+        title_match = re.search(r'<h3>([^<]+)</h3>', html_data)
+        title = title_match.group(1).strip() if title_match else "Video de TikTok"
+        
+        # Extract tokens from href="https://dl.snapcdn.app/get?token=..."
+        tokens = re.findall(r'href="https://dl\.snapcdn\.app/get\?token=([^"]+)"', html_data)
+        
+        hd_url = None
+        regular_url = None
+        
+        for token in tokens:
+            try:
+                # Decode JWT payload (second part of token)
+                payload_parts = token.split('.')
+                if len(payload_parts) >= 2:
+                    payload_b64 = payload_parts[1]
+                    missing_padding = len(payload_b64) % 4
+                    if missing_padding:
+                        payload_b64 += '=' * (4 - missing_padding)
+                    payload_json = base64.b64decode(payload_b64.encode('utf-8')).decode('utf-8')
+                    payload = json.loads(payload_json)
+                    
+                    filename = payload.get('filename', '')
+                    url_val = payload.get('url')
+                    if filename and '-hd.mp4' in filename:
+                        hd_url = url_val
+                        break
+                    elif filename and filename.endswith('.mp4'):
+                        regular_url = url_val
+            except Exception as e:
+                print(f"Error decoding TikVid token in python: {e}")
+                
+        video_url = hd_url or regular_url
+        if not video_url:
+            return None
+            
+        return {
+            "videoUrl": video_url,
+            "thumbnail": thumbnail,
+            "title": title
+        }
+    except Exception as e:
+        print(f"TikVid scrape exception: {e}")
+        return None
 
 app = FastAPI(title="ByteDownloader API Engine")
 
@@ -151,6 +230,36 @@ async def serve_file(filename: str, background_tasks: BackgroundTasks):
 async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundTasks, request: Request):
     url = await clean_tiktok_url(req.url)
     
+    # Si es un enlace de TikTok, intentar extraer el original HD de TikVid
+    if "tiktok.com" in url:
+        tikvid_res = await asyncio.to_thread(fetch_tikvid_hd_py, url)
+        if tikvid_res:
+            stream_id = str(uuid.uuid4())
+            # Guardar en memoria
+            stream_cache[stream_id] = {
+                "url": tikvid_res["videoUrl"],
+                "headers": {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                },
+                "filename": f"{tikvid_res['title']}.mp4"
+            }
+            # Eliminar de memoria en 30 minutos
+            loop = asyncio.get_running_loop()
+            loop.call_later(1800, lambda: stream_cache.pop(stream_id, None))
+            
+            base_url = str(request.base_url).rstrip('/')
+            codec = "hevc" if "original.mp4" in tikvid_res["videoUrl"] else "h264"
+            download_link = f"{base_url}/download-stream/{stream_id}?codec={codec}"
+            
+            return {
+                "success": True,
+                "platform": "tiktok",
+                "title": tikvid_res["title"],
+                "thumbnail": tikvid_res["thumbnail"],
+                "videoUrl": download_link,
+                "needs_processing": False
+            }
+            
     # Seleccionar formato según la preferencia de calidad
     fmt_str = 'bestvideo+bestaudio/best' if req.format_preference == 'best' else 'bestvideo[vcodec*=h264]+bestaudio/best[vcodec*=h264]/best'
     
@@ -229,6 +338,10 @@ async def serve_stream_file(stream_id: str, request: Request):
     req_headers = {k: v for k, v in headers.items()}
     if "range" in request.headers:
         req_headers["range"] = request.headers["range"]
+        
+    # Spoof Referer to bypass hotlink block for TikVid CDN URLs
+    if "tokcdn.com" in stream_url or "snapcdn.app" in stream_url:
+        req_headers["Referer"] = "https://tikvid.io/"
         
     # Cargar las cookies desde master_cookies.txt si existe
     cookies = None
