@@ -338,33 +338,34 @@ async def extract_info(req: ExtractRequest, background_tasks: BackgroundTasks, r
     if os.path.exists("master_cookies.txt"):
         ydl_opts['cookiefile'] = "master_cookies.txt"
     
-    info = None
-    last_error = None
-    max_attempts = 3 if proxy_pool else 1
-    
-    for attempt in range(max_attempts):
-        if proxy_pool:
-            chosen_proxy = random.choice(proxy_pool)
-            ydl_opts['proxy'] = f"http://{chosen_proxy}"
-            print(f"yt-dlp extract (download) attempt {attempt + 1} using proxy: {chosen_proxy}")
-        try:
-            def download():
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    return ydl.extract_info(url, download=True)
-            info = await asyncio.to_thread(download)
-            break
-        except Exception as e:
-            last_error = e
-            print(f"yt-dlp extract (download) attempt {attempt + 1} failed: {e}")
-            if proxy_pool and chosen_proxy in proxy_pool:
-                try:
-                    proxy_pool.remove(chosen_proxy)
-                except:
-                    pass
-                    
-    if not info:
-        raise last_error or Exception("Failed to download video after all proxy attempts")
+    try:
+        info = None
+        last_error = None
+        max_attempts = 3 if proxy_pool else 1
         
+        for attempt in range(max_attempts):
+            if proxy_pool:
+                chosen_proxy = random.choice(proxy_pool)
+                ydl_opts['proxy'] = f"http://{chosen_proxy}"
+                print(f"yt-dlp extract (download) attempt {attempt + 1} using proxy: {chosen_proxy}")
+            try:
+                def download():
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        return ydl.extract_info(url, download=True)
+                info = await asyncio.to_thread(download)
+                break
+            except Exception as e:
+                last_error = e
+                print(f"yt-dlp extract (download) attempt {attempt + 1} failed: {e}")
+                if proxy_pool and chosen_proxy in proxy_pool:
+                    try:
+                        proxy_pool.remove(chosen_proxy)
+                    except:
+                        pass
+                        
+        if not info:
+            raise last_error or Exception("Failed to download video after all proxy attempts")
+            
         platform = info.get('extractor', 'unknown').lower()
         title = info.get('title', 'Video')
         thumbnail = info.get('thumbnail', '')
@@ -458,33 +459,34 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
     if os.path.exists("master_cookies.txt"):
         ydl_opts['cookiefile'] = "master_cookies.txt"
     
-    info = None
-    last_error = None
-    max_attempts = 3 if proxy_pool else 1
-    
-    for attempt in range(max_attempts):
-        if proxy_pool:
-            chosen_proxy = random.choice(proxy_pool)
-            ydl_opts['proxy'] = f"http://{chosen_proxy}"
-            print(f"yt-dlp extract (stream) attempt {attempt + 1} using proxy: {chosen_proxy}")
-        try:
-            def get_info():
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    return ydl.extract_info(url, download=False)
-            info = await asyncio.to_thread(get_info)
-            break
-        except Exception as e:
-            last_error = e
-            print(f"yt-dlp extract (stream) attempt {attempt + 1} failed: {e}")
-            if proxy_pool and chosen_proxy in proxy_pool:
-                try:
-                    proxy_pool.remove(chosen_proxy)
-                except:
-                    pass
-                    
-    if not info:
-        raise last_error or Exception("Failed to extract info via yt-dlp after all proxy attempts")
+    try:
+        info = None
+        last_error = None
+        max_attempts = 3 if proxy_pool else 1
         
+        for attempt in range(max_attempts):
+            if proxy_pool:
+                chosen_proxy = random.choice(proxy_pool)
+                ydl_opts['proxy'] = f"http://{chosen_proxy}"
+                print(f"yt-dlp extract (stream) attempt {attempt + 1} using proxy: {chosen_proxy}")
+            try:
+                def get_info():
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        return ydl.extract_info(url, download=False)
+                info = await asyncio.to_thread(get_info)
+                break
+            except Exception as e:
+                last_error = e
+                print(f"yt-dlp extract (stream) attempt {attempt + 1} failed: {e}")
+                if proxy_pool and chosen_proxy in proxy_pool:
+                    try:
+                        proxy_pool.remove(chosen_proxy)
+                    except:
+                        pass
+                        
+        if not info:
+            raise last_error or Exception("Failed to extract info via yt-dlp after all proxy attempts")
+            
         stream_url = info.get('url')
         http_headers = info.get('http_headers', {})
         
