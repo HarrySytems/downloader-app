@@ -99,6 +99,94 @@ def fetch_tikvid_hd_py(tiktok_url: str, format_preference: str = "h264") -> dict
         print(f"TikVid scrape exception: {e}")
         return None
 
+def fetch_snapvid_hd_py(tiktok_url: str, format_preference: str = "h264") -> dict:
+    try:
+        api_url = "https://snapvid.net/api/ajaxSearch"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+            "Origin": "https://snapvid.net",
+            "Referer": "https://snapvid.net/en"
+        }
+        data = {
+            "q": tiktok_url,
+            "w": "",
+            "v": "v2",
+            "lang": "en"
+        }
+        with httpx.Client() as client:
+            resp = client.post(api_url, headers=headers, data=data, timeout=10.0)
+            if resp.status_code != 200:
+                print(f"SnapVid Python scrape failed with status: {resp.status_code}")
+                return None
+                
+            res_json = resp.json()
+            if res_json.get("status") != "ok" or not res_json.get("data"):
+                print("SnapVid response status not ok")
+                return None
+            
+        html_data = res_json.get("data", "")
+        
+        # Extract thumbnail
+        img_match = re.search(r'<img[^>]+src="([^"]+)"', html_data)
+        thumbnail = img_match.group(1).replace('&amp;', '&') if img_match else ""
+        
+        # Extract title
+        title_match = re.search(r'<h3>([^<]+)</h3>', html_data)
+        title = title_match.group(1).strip() if title_match else "Video de TikTok"
+        
+        # Extract tokens from href="https://dl.snapcdn.app/get?token=..."
+        tokens = re.findall(r'href="https://dl\.snapcdn\.app/get\?token=([^"]+)"', html_data)
+        
+        hd_url = None
+        regular_url = None
+        
+        for token in tokens:
+            try:
+                # Clean token by removing any other URL parameters like &amp;fn=...
+                clean_token = token.split('&')[0].split(';')[0]
+                payload_parts = clean_token.split('.')
+                if len(payload_parts) >= 2:
+                    payload_b64 = payload_parts[1]
+                    # Replace url-safe base64 characters
+                    payload_b64 = payload_b64.replace('-', '+').replace('_', '/')
+                    missing_padding = len(payload_b64) % 4
+                    if missing_padding:
+                        payload_b64 += '=' * (4 - missing_padding)
+                    payload_json = base64.b64decode(payload_b64.encode('utf-8')).decode('utf-8')
+                    payload = json.loads(payload_json)
+                    
+                    filename = payload.get('filename', '')
+                    url_val = payload.get('url')
+                    if filename and '-hd.mp4' in filename:
+                        hd_url = url_val
+                    elif filename and filename.endswith('.mp4'):
+                        regular_url = url_val
+            except Exception as e:
+                print(f"Error decoding SnapVid token in python: {e}")
+                
+        # If user wants H.264 (PC), we prefer the regular version because the HD version is in H.265 (HEVC)
+        if format_preference == "h264":
+            video_url = regular_url or hd_url
+            codec = "h264"
+        else:
+            video_url = hd_url or regular_url
+            codec = "hevc" if video_url == hd_url else "h264"
+            
+        if not video_url:
+            return None
+            
+        return {
+            "videoUrl": video_url,
+            "thumbnail": thumbnail,
+            "title": title,
+            "codec": codec
+        }
+    except Exception as e:
+        print(f"SnapVid scrape exception: {e}")
+        return None
+
 app = FastAPI(title="ByteDownloader API Engine")
 
 # Permitir CORS para que la web en Next.js se conecte directamente
@@ -240,9 +328,13 @@ async def serve_file(filename: str, background_tasks: BackgroundTasks):
 async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundTasks, request: Request):
     url = await clean_tiktok_url(req.url)
     
-    # Si es un enlace de TikTok, intentar extraer el original HD de TikVid
+    # Si es un enlace de TikTok, intentar extraer el original HD de TikVid o SnapVid
     if "tiktok.com" in url:
         tikvid_res = await asyncio.to_thread(fetch_tikvid_hd_py, url, req.format_preference)
+        if not tikvid_res:
+            print("TikVid failed, trying SnapVid cushion...")
+            tikvid_res = await asyncio.to_thread(fetch_snapvid_hd_py, url, req.format_preference)
+            
         if tikvid_res:
             stream_id = str(uuid.uuid4())
             # Guardar en memoria
