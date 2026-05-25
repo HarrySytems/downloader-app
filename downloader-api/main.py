@@ -24,9 +24,13 @@ def is_proxy_alive(proxy: str) -> bool:
             "http://": f"http://{proxy}",
             "https://": f"http://{proxy}"
         }
-        with httpx.Client(proxies=proxies, verify=False) as client:
-            resp = client.head("https://www.tiktok.com/robots.txt", timeout=1.5)
-            if resp.status_code in [200, 301, 302]:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        with httpx.Client(proxies=proxies, verify=False, headers=headers) as client:
+            # Probar contra google.com para verificar si el proxy está vivo y responde rápido
+            resp = client.get("https://www.google.com", timeout=1.5)
+            if resp.status_code == 200:
                 return True
     except Exception:
         pass
@@ -44,7 +48,8 @@ def get_valid_proxy(pool, limit=35):
     random.shuffle(candidates)
     candidates = candidates[:limit]
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+    # Probar todos los candidatos concurrentemente con hilos
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(candidates)) as executor:
         results = list(executor.map(check_proxy, candidates))
         
     # Eliminar proxies muertos de la lista global
