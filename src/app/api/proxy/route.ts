@@ -14,6 +14,8 @@ export async function GET(request: Request) {
     let referer = 'https://www.tiktok.com/';
     if (fileUrl.includes('twimg.com') || fileUrl.includes('twitter.com') || fileUrl.includes('x.com')) {
       referer = 'https://twitter.com/';
+    } else if (fileUrl.includes('tokcdn.com') || fileUrl.includes('snapcdn.app')) {
+      referer = 'https://tikvid.io/';
     }
 
     const response = await fetch(fileUrl, {

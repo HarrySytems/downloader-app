@@ -2,6 +2,82 @@ import { NextResponse } from 'next/server';
 
 export const maxDuration = 60; // Allow Vercel to wait up to 60s for Hugging Face transcoding
 
+interface TikVidResult {
+  videoUrl: string;
+  thumbnail: string;
+  title: string;
+}
+
+async function fetchTikVidHD(tiktokUrl: string): Promise<TikVidResult | null> {
+  try {
+    const apiResponse = await fetch('https://tikvid.io/api/ajaxSearch', {
+      method: 'POST',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Origin': 'https://tikvid.io',
+        'Referer': 'https://tikvid.io/en'
+      },
+      body: new URLSearchParams({
+        q: tiktokUrl,
+        lang: 'en'
+      })
+    });
+
+    if (!apiResponse.ok) return null;
+    const result = await apiResponse.json();
+    if (result.status !== 'ok' || !result.data) return null;
+
+    const htmlData = result.data;
+    
+    // Extract thumbnail
+    const imgMatch = htmlData.match(/<img[^>]+src="([^"]+)"/);
+    const thumbnail = imgMatch ? imgMatch[1].replace(/&amp;/g, '&') : '';
+
+    // Extract title
+    const titleMatch = htmlData.match(/<h3>([^<]+)<\/h3>/);
+    const title = titleMatch ? titleMatch[1].trim() : 'Video de TikTok';
+
+    // Extract tokens from href="https://dl.snapcdn.app/get?token=..."
+    const regex = /href="https:\/\/dl\.snapcdn\.app\/get\?token=([^"]+)"/g;
+    let match;
+    let hdUrl: string | null = null;
+    let regularUrl: string | null = null;
+
+    while ((match = regex.exec(htmlData)) !== null) {
+      const token = match[1];
+      try {
+        const payloadParts = token.split('.');
+        if (payloadParts.length >= 2) {
+          const payloadJson = Buffer.from(payloadParts[1], 'base64').toString('utf-8');
+          const payload = JSON.parse(payloadJson);
+          if (payload.filename && payload.filename.includes('-hd.mp4')) {
+            hdUrl = payload.url;
+            break;
+          } else if (payload.filename && payload.filename.endsWith('.mp4')) {
+            regularUrl = payload.url;
+          }
+        }
+      } catch (err) {
+        console.error('Error decoding TikVid token:', err);
+      }
+    }
+
+    const videoUrl = hdUrl || regularUrl;
+    if (!videoUrl) return null;
+
+    return {
+      videoUrl,
+      thumbnail,
+      title
+    };
+  } catch (err) {
+    console.error('TikVid API scrape failed:', err);
+    return null;
+  }
+}
+
 export async function POST(request: Request) {
   try {
     let { url } = await request.json();
@@ -112,6 +188,19 @@ export async function POST(request: Request) {
         }
       } catch (err) {
         console.error('TikWM slideshow check error:', err);
+      }
+
+      // Intentar obtener el video de alta calidad (Original HD) usando TikVid
+      const tikvidRes = await fetchTikVidHD(url);
+      if (tikvidRes) {
+        return NextResponse.json({
+          success: true,
+          platform,
+          title: tikvidRes.title,
+          thumbnail: tikvidRes.thumbnail,
+          videoUrl: tikvidRes.videoUrl,
+          audioUrl: ''
+        });
       }
 
       // Fallback: Si es un video normal o si TikWM falla, usamos el motor en Hugging Face (Full HD)
