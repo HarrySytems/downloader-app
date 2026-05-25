@@ -145,10 +145,13 @@ export default function Home() {
   const handlePaste = async () => {
     try {
       const text = await navigator.clipboard.readText();
-      setUrl(text);
-      setError(null);
+      if (text) {
+        setUrl(text);
+        setError(null);
+      }
     } catch (err) {
       console.error('Clipboard paste failed:', err);
+      setError("No pudimos leer el portapapeles. Por favor, mantén presionado el cuadro de texto y selecciona 'Pegar'.");
     }
   };
 
