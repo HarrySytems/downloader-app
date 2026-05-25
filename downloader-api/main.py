@@ -14,7 +14,52 @@ import base64
 import json
 import random
 
+import concurrent.futures
+
 proxy_pool = []
+
+def is_proxy_alive(proxy: str) -> bool:
+    try:
+        proxies = {
+            "http://": f"http://{proxy}",
+            "https://": f"http://{proxy}"
+        }
+        with httpx.Client(proxies=proxies, verify=False) as client:
+            resp = client.head("https://www.tiktok.com/robots.txt", timeout=1.5)
+            if resp.status_code in [200, 301, 302]:
+                return True
+    except Exception:
+        pass
+    return False
+
+def check_proxy(proxy):
+    if is_proxy_alive(proxy):
+        return proxy
+    return None
+
+def get_valid_proxy(pool, limit=35):
+    if not pool:
+        return None
+    candidates = list(pool)
+    random.shuffle(candidates)
+    candidates = candidates[:limit]
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+        results = list(executor.map(check_proxy, candidates))
+        
+    # Eliminar proxies muertos de la lista global
+    for candidate, res in zip(candidates, results):
+        if res is None:
+            try:
+                if candidate in pool:
+                    pool.remove(candidate)
+            except:
+                pass
+                
+    valid_proxies = [p for p in results if p is not None]
+    if valid_proxies:
+        return valid_proxies[0]
+    return None
 
 async def refresh_proxies_loop():
     global proxy_pool
@@ -22,7 +67,9 @@ async def refresh_proxies_loop():
         try:
             print("Background updating proxy pool...")
             urls = [
-                "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
+                "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=ipport&format=text",
+                "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/http.txt",
+                "https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/all/data.txt",
                 "https://www.proxy-list.download/api/v1/get?type=http",
                 "https://www.proxy-list.download/api/v1/get?type=https"
             ]
@@ -50,28 +97,27 @@ async def refresh_proxies_loop():
 
 def post_with_proxy(api_url, headers, data, timeout=10.0):
     global proxy_pool
-    local_pool = list(proxy_pool)
-    random.shuffle(local_pool)
     
-    # Probar hasta 35 proxies aleatorios, pero con un timeout muy bajo (2.5s) para descartar los caídos rápidamente
-    for proxy in local_pool[:35]:
+    valid_proxy = get_valid_proxy(proxy_pool, limit=35)
+    
+    if valid_proxy:
         try:
             proxies = {
-                "http://": f"http://{proxy}",
-                "https://": f"http://{proxy}"
+                "http://": f"http://{valid_proxy}",
+                "https://": f"http://{valid_proxy}"
             }
             with httpx.Client(proxies=proxies, verify=False) as client:
-                resp = client.post(api_url, headers=headers, data=data, timeout=2.5)
+                resp = client.post(api_url, headers=headers, data=data, timeout=timeout)
                 if resp.status_code == 200:
-                    print(f"Successful request to {api_url} using proxy {proxy}")
+                    print(f"Successful request to {api_url} using validated proxy {valid_proxy}")
                     return resp
                 else:
-                    print(f"Proxy {proxy} returned status {resp.status_code} for {api_url}")
+                    print(f"Validated proxy {valid_proxy} returned status {resp.status_code} for {api_url}")
         except Exception as e:
-            # print(f"Proxy {proxy} failed for {api_url}: {e}")
+            print(f"Validated proxy {valid_proxy} failed during request to {api_url}: {e}")
             try:
-                if proxy in proxy_pool:
-                    proxy_pool.remove(proxy)
+                if valid_proxy in proxy_pool:
+                    proxy_pool.remove(valid_proxy)
             except:
                 pass
                 
@@ -344,10 +390,16 @@ async def extract_info(req: ExtractRequest, background_tasks: BackgroundTasks, r
         max_attempts = 3 if proxy_pool else 1
         
         for attempt in range(max_attempts):
+            chosen_proxy = None
             if proxy_pool:
-                chosen_proxy = random.choice(proxy_pool)
-                ydl_opts['proxy'] = f"http://{chosen_proxy}"
-                print(f"yt-dlp extract (download) attempt {attempt + 1} using proxy: {chosen_proxy}")
+                chosen_proxy = get_valid_proxy(proxy_pool, limit=20)
+                if chosen_proxy:
+                    ydl_opts['proxy'] = f"http://{chosen_proxy}"
+                    print(f"yt-dlp extract (download) attempt {attempt + 1} using verified proxy: {chosen_proxy}")
+                else:
+                    chosen_proxy = random.choice(proxy_pool)
+                    ydl_opts['proxy'] = f"http://{chosen_proxy}"
+                    print(f"yt-dlp extract (download) attempt {attempt + 1} using random proxy: {chosen_proxy}")
             try:
                 def download():
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -465,10 +517,16 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
         max_attempts = 3 if proxy_pool else 1
         
         for attempt in range(max_attempts):
+            chosen_proxy = None
             if proxy_pool:
-                chosen_proxy = random.choice(proxy_pool)
-                ydl_opts['proxy'] = f"http://{chosen_proxy}"
-                print(f"yt-dlp extract (stream) attempt {attempt + 1} using proxy: {chosen_proxy}")
+                chosen_proxy = get_valid_proxy(proxy_pool, limit=20)
+                if chosen_proxy:
+                    ydl_opts['proxy'] = f"http://{chosen_proxy}"
+                    print(f"yt-dlp extract (stream) attempt {attempt + 1} using verified proxy: {chosen_proxy}")
+                else:
+                    chosen_proxy = random.choice(proxy_pool)
+                    ydl_opts['proxy'] = f"http://{chosen_proxy}"
+                    print(f"yt-dlp extract (stream) attempt {attempt + 1} using random proxy: {chosen_proxy}")
             try:
                 def get_info():
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
