@@ -47,6 +47,7 @@ export default function RootLayout({
             `
           }}
         />
+        <script src="https://quge5.com/88/tag.min.js" data-zone="242786" async data-cfasync="false"></script>
       </head>
       <body className="min-h-full flex flex-col bg-slate-50 dark:bg-slate-900 transition-colors duration-200">{children}</body>
     </html>
