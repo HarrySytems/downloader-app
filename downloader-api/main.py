@@ -13,7 +13,7 @@ import re
 import base64
 import json
 
-def fetch_tikvid_hd_py(tiktok_url: str) -> dict:
+def fetch_tikvid_hd_py(tiktok_url: str, format_preference: str = "h264") -> dict:
     try:
         api_url = "https://tikvid.io/api/ajaxSearch"
         headers = {
@@ -56,10 +56,13 @@ def fetch_tikvid_hd_py(tiktok_url: str) -> dict:
         
         for token in tokens:
             try:
-                # Decode JWT payload (second part of token)
-                payload_parts = token.split('.')
+                # Clean token by removing any other URL parameters like &amp;fn=...
+                clean_token = token.split('&')[0].split(';')[0]
+                payload_parts = clean_token.split('.')
                 if len(payload_parts) >= 2:
                     payload_b64 = payload_parts[1]
+                    # Replace url-safe base64 characters
+                    payload_b64 = payload_b64.replace('-', '+').replace('_', '/')
                     missing_padding = len(payload_b64) % 4
                     if missing_padding:
                         payload_b64 += '=' * (4 - missing_padding)
@@ -70,20 +73,27 @@ def fetch_tikvid_hd_py(tiktok_url: str) -> dict:
                     url_val = payload.get('url')
                     if filename and '-hd.mp4' in filename:
                         hd_url = url_val
-                        break
                     elif filename and filename.endswith('.mp4'):
                         regular_url = url_val
             except Exception as e:
                 print(f"Error decoding TikVid token in python: {e}")
                 
-        video_url = hd_url or regular_url
+        # If user wants H.264 (PC), we prefer the regular version because the HD version is in H.265 (HEVC)
+        if format_preference == "h264":
+            video_url = regular_url or hd_url
+            codec = "h264"
+        else:
+            video_url = hd_url or regular_url
+            codec = "hevc" if video_url == hd_url else "h264"
+            
         if not video_url:
             return None
             
         return {
             "videoUrl": video_url,
             "thumbnail": thumbnail,
-            "title": title
+            "title": title,
+            "codec": codec
         }
     except Exception as e:
         print(f"TikVid scrape exception: {e}")
@@ -232,7 +242,7 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
     
     # Si es un enlace de TikTok, intentar extraer el original HD de TikVid
     if "tiktok.com" in url:
-        tikvid_res = await asyncio.to_thread(fetch_tikvid_hd_py, url)
+        tikvid_res = await asyncio.to_thread(fetch_tikvid_hd_py, url, req.format_preference)
         if tikvid_res:
             stream_id = str(uuid.uuid4())
             # Guardar en memoria
@@ -248,8 +258,7 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
             loop.call_later(1800, lambda: stream_cache.pop(stream_id, None))
             
             base_url = str(request.base_url).rstrip('/')
-            codec = "hevc" if "original.mp4" in tikvid_res["videoUrl"] else "h264"
-            download_link = f"{base_url}/download-stream/{stream_id}?codec={codec}"
+            download_link = f"{base_url}/download-stream/{stream_id}?codec={tikvid_res['codec']}"
             
             return {
                 "success": True,
