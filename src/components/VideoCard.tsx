@@ -213,7 +213,7 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
                   className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                   loading="lazy"
                 />
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                <div className="absolute inset-0 bg-black/25 md:bg-black/40 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
                   <button
                     onClick={() => handleDownload(img, cleanFilename(`${data.title || 'image'}_${idx + 1}`, 'jpg'), () => {})}
                     className="p-3 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-lg active:scale-90"

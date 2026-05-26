@@ -32,7 +32,24 @@ export async function GET(request: Request) {
 
     const headers = new Headers();
     headers.set('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
-    headers.set('Content-Type', 'video/mp4');
+    
+    // Dynamic Content-Type detection based on remote response or file extension
+    let contentType = response.headers.get('Content-Type');
+    if (!contentType || contentType === 'application/octet-stream') {
+      const lowerFilename = filename.toLowerCase();
+      if (lowerFilename.endsWith('.jpg') || lowerFilename.endsWith('.jpeg')) {
+        contentType = 'image/jpeg';
+      } else if (lowerFilename.endsWith('.png')) {
+        contentType = 'image/png';
+      } else if (lowerFilename.endsWith('.gif')) {
+        contentType = 'image/gif';
+      } else if (lowerFilename.endsWith('.mp3')) {
+        contentType = 'audio/mpeg';
+      } else {
+        contentType = 'video/mp4';
+      }
+    }
+    headers.set('Content-Type', contentType);
     headers.set('Access-Control-Allow-Origin', '*');
 
     // Transmisión directa (sin transcodificar localmente en Vercel para evitar caídas por falta de FFmpeg)
