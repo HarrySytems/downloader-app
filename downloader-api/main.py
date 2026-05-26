@@ -1,5 +1,5 @@
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import yt_dlp
@@ -10,289 +10,6 @@ import urllib.parse
 import httpx
 import http.cookiejar
 import re
-import base64
-import json
-import random
-
-import concurrent.futures
-
-proxy_pool = []
-
-def is_proxy_alive(proxy: str) -> bool:
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
-        with httpx.Client(proxy=f"http://{proxy}", verify=False, headers=headers) as client:
-            # Probar contra google.com para verificar si el proxy está vivo y responde rápido
-            resp = client.get("https://www.google.com", timeout=1.5)
-            if resp.status_code == 200:
-                return True
-    except Exception:
-        pass
-    return False
-
-def check_proxy(proxy):
-    if is_proxy_alive(proxy):
-        return proxy
-    return None
-
-def get_valid_proxy(pool, limit=35):
-    if not pool:
-        return None
-    candidates = list(pool)
-    random.shuffle(candidates)
-    candidates = candidates[:limit]
-    
-    # Probar todos los candidatos concurrentemente con hilos
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(candidates)) as executor:
-        results = list(executor.map(check_proxy, candidates))
-        
-    # Eliminar proxies muertos de la lista global
-    for candidate, res in zip(candidates, results):
-        if res is None:
-            try:
-                if candidate in pool:
-                    pool.remove(candidate)
-            except:
-                pass
-                
-    valid_proxies = [p for p in results if p is not None]
-    if valid_proxies:
-        return valid_proxies[0]
-    return None
-
-async def refresh_proxies_loop():
-    global proxy_pool
-    while True:
-        try:
-            print("Background updating proxy pool...")
-            urls = [
-                "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=ipport&format=text",
-                "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/http.txt",
-                "https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/all/data.txt",
-                "https://www.proxy-list.download/api/v1/get?type=http",
-                "https://www.proxy-list.download/api/v1/get?type=https"
-            ]
-            new_proxies = set()
-            async with httpx.AsyncClient() as client:
-                for url in urls:
-                    try:
-                        resp = await client.get(url, timeout=10.0)
-                        if resp.status_code == 200:
-                            lines = resp.text.replace("\r", "").split("\n")
-                            for line in lines:
-                                line = line.strip()
-                                if line and ":" in line:
-                                    parts = line.split(":")
-                                    if len(parts) == 2 and parts[0].replace(".", "").isdigit() and parts[1].isdigit():
-                                        new_proxies.add(line)
-                    except Exception as e:
-                        print(f"Error fetching from {url}: {e}")
-            if new_proxies:
-                proxy_pool = list(new_proxies)
-                print(f"Proxy pool updated: {len(proxy_pool)} proxies loaded.")
-        except Exception as e:
-            print(f"Proxy refresh loop exception: {e}")
-        await asyncio.sleep(1800)
-
-def post_with_proxy(api_url, headers, data, timeout=10.0):
-    global proxy_pool
-    
-    valid_proxy = get_valid_proxy(proxy_pool, limit=35)
-    
-    if valid_proxy:
-        try:
-            with httpx.Client(proxy=f"http://{valid_proxy}", verify=False) as client:
-                resp = client.post(api_url, headers=headers, data=data, timeout=timeout)
-                if resp.status_code == 200:
-                    print(f"Successful request to {api_url} using validated proxy {valid_proxy}")
-                    return resp
-                else:
-                    print(f"Validated proxy {valid_proxy} returned status {resp.status_code} for {api_url}")
-        except Exception as e:
-            print(f"Validated proxy {valid_proxy} failed during request to {api_url}: {e}")
-            try:
-                if valid_proxy in proxy_pool:
-                    proxy_pool.remove(valid_proxy)
-            except:
-                pass
-                
-    print(f"All proxies failed or pool empty. Falling back to direct connection for {api_url}...")
-    with httpx.Client() as client:
-        return client.post(api_url, headers=headers, data=data, timeout=timeout)
-
-def fetch_tikvid_hd_py(tiktok_url: str, format_preference: str = "h264") -> dict:
-    try:
-        api_url = "https://tikvid.io/api/ajaxSearch"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "X-Requested-With": "XMLHttpRequest",
-            "Origin": "https://tikvid.io",
-            "Referer": "https://tikvid.io/en"
-        }
-        data = {
-            "q": tiktok_url,
-            "lang": "en"
-        }
-        resp = post_with_proxy(api_url, headers, data, timeout=10.0)
-        if resp.status_code != 200:
-            print(f"TikVid Python scrape failed with status: {resp.status_code}")
-            return None
-            
-        res_json = resp.json()
-        if res_json.get("status") != "ok" or not res_json.get("data"):
-            print("TikVid response status not ok")
-            return None
-            
-        html_data = res_json.get("data", "")
-        
-        # Extract thumbnail
-        img_match = re.search(r'<img[^>]+src="([^"]+)"', html_data)
-        thumbnail = img_match.group(1).replace('&amp;', '&') if img_match else ""
-        
-        # Extract title
-        title_match = re.search(r'<h3>([^<]+)</h3>', html_data)
-        title = title_match.group(1).strip() if title_match else "Video de TikTok"
-        
-        # Extract tokens from href="https://dl.snapcdn.app/get?token=..."
-        tokens = re.findall(r'href="https://dl\.snapcdn\.app/get\?token=([^"]+)"', html_data)
-        
-        hd_url = None
-        regular_url = None
-        
-        for token in tokens:
-            try:
-                # Clean token by removing any other URL parameters like &amp;fn=...
-                clean_token = token.split('&')[0].split(';')[0]
-                payload_parts = clean_token.split('.')
-                if len(payload_parts) >= 2:
-                    payload_b64 = payload_parts[1]
-                    # Replace url-safe base64 characters
-                    payload_b64 = payload_b64.replace('-', '+').replace('_', '/')
-                    missing_padding = len(payload_b64) % 4
-                    if missing_padding:
-                        payload_b64 += '=' * (4 - missing_padding)
-                    payload_json = base64.b64decode(payload_b64.encode('utf-8')).decode('utf-8')
-                    payload = json.loads(payload_json)
-                    
-                    filename = payload.get('filename', '')
-                    url_val = payload.get('url')
-                    if filename and '-hd.mp4' in filename:
-                        hd_url = url_val
-                    elif filename and filename.endswith('.mp4'):
-                        regular_url = url_val
-            except Exception as e:
-                print(f"Error decoding TikVid token in python: {e}")
-                
-        # If user wants H.264 (PC), we prefer the regular version because the HD version is in H.265 (HEVC)
-        if format_preference == "h264":
-            video_url = regular_url or hd_url
-            codec = "h264"
-        else:
-            video_url = hd_url or regular_url
-            codec = "hevc" if video_url == hd_url else "h264"
-            
-        if not video_url:
-            return None
-            
-        return {
-            "videoUrl": video_url,
-            "thumbnail": thumbnail,
-            "title": title,
-            "codec": codec
-        }
-    except Exception as e:
-        print(f"TikVid scrape exception: {e}")
-        return None
-
-def fetch_snapvid_hd_py(tiktok_url: str, format_preference: str = "h264") -> dict:
-    try:
-        api_url = "https://snapvid.net/api/ajaxSearch"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "X-Requested-With": "XMLHttpRequest",
-            "Origin": "https://snapvid.net",
-            "Referer": "https://snapvid.net/en"
-        }
-        data = {
-            "q": tiktok_url,
-            "w": "",
-            "v": "v2",
-            "lang": "en"
-        }
-        resp = post_with_proxy(api_url, headers, data, timeout=10.0)
-        if resp.status_code != 200:
-            print(f"SnapVid Python scrape failed with status: {resp.status_code}")
-            return None
-            
-        res_json = resp.json()
-        if res_json.get("status") != "ok" or not res_json.get("data"):
-            print("SnapVid response status not ok")
-            return None
-            
-        html_data = res_json.get("data", "")
-        
-        # Extract thumbnail
-        img_match = re.search(r'<img[^>]+src="([^"]+)"', html_data)
-        thumbnail = img_match.group(1).replace('&amp;', '&') if img_match else ""
-        
-        # Extract title
-        title_match = re.search(r'<h3>([^<]+)</h3>', html_data)
-        title = title_match.group(1).strip() if title_match else "Video de TikTok"
-        
-        # Extract tokens from href="https://dl.snapcdn.app/get?token=..."
-        tokens = re.findall(r'href="https://dl\.snapcdn\.app/get\?token=([^"]+)"', html_data)
-        
-        hd_url = None
-        regular_url = None
-        
-        for token in tokens:
-            try:
-                # Clean token by removing any other URL parameters like &amp;fn=...
-                clean_token = token.split('&')[0].split(';')[0]
-                payload_parts = clean_token.split('.')
-                if len(payload_parts) >= 2:
-                    payload_b64 = payload_parts[1]
-                    # Replace url-safe base64 characters
-                    payload_b64 = payload_b64.replace('-', '+').replace('_', '/')
-                    missing_padding = len(payload_b64) % 4
-                    if missing_padding:
-                        payload_b64 += '=' * (4 - missing_padding)
-                    payload_json = base64.b64decode(payload_b64.encode('utf-8')).decode('utf-8')
-                    payload = json.loads(payload_json)
-                    
-                    filename = payload.get('filename', '')
-                    url_val = payload.get('url')
-                    if filename and '-hd.mp4' in filename:
-                        hd_url = url_val
-                    elif filename and filename.endswith('.mp4'):
-                        regular_url = url_val
-            except Exception as e:
-                print(f"Error decoding SnapVid token in python: {e}")
-                
-        # If user wants H.264 (PC), we prefer the regular version because the HD version is in H.265 (HEVC)
-        if format_preference == "h264":
-            video_url = regular_url or hd_url
-            codec = "h264"
-        else:
-            video_url = hd_url or regular_url
-            codec = "hevc" if video_url == hd_url else "h264"
-            
-        if not video_url:
-            return None
-            
-        return {
-            "videoUrl": video_url,
-            "thumbnail": thumbnail,
-            "title": title,
-            "codec": codec
-        }
-    except Exception as e:
-        print(f"SnapVid scrape exception: {e}")
-        return None
 
 app = FastAPI(title="ByteDownloader API Engine")
 
@@ -310,9 +27,6 @@ stream_cache = {}
 
 @app.on_event("startup")
 async def startup_event():
-    # Start the proxy refresh loop in the background
-    asyncio.create_task(refresh_proxies_loop())
-    
     # Unir todas las cookies en un solo archivo master cuando el servidor inicia
     cookie_files = ["www.tiktok.com_cookies.txt"]
     master_cookie_content = "# Netscape HTTP Cookie File\n"
@@ -351,8 +65,6 @@ async def clean_tiktok_url(url: str) -> str:
             url = url.split("?")[0]
     return url
 
-# ----------------- RUTA ESTABLE DE SIEMPRE (BASADA EN DISCO) -----------------
-
 # Eliminar el video temporal del servidor después de descargarlo
 def delete_file(file_path: str):
     try:
@@ -362,6 +74,9 @@ def delete_file(file_path: str):
     except Exception as e:
         print(f"Error deleting file {file_path}: {e}")
 
+
+# ----------------- RUTA BASADA EN DISCO -----------------
+
 @app.post("/api/extract")
 async def extract_info(req: ExtractRequest, background_tasks: BackgroundTasks, request: Request):
     url = await clean_tiktok_url(req.url)
@@ -369,7 +84,6 @@ async def extract_info(req: ExtractRequest, background_tasks: BackgroundTasks, r
     file_id = str(uuid.uuid4())
     output_filename = f"video_{file_id}.mp4"
     
-    # Seleccionar formato según la preferencia de calidad
     fmt_str = 'bestvideo+bestaudio/best' if req.format_preference == 'best' else 'bestvideo[vcodec*=h264]+bestaudio/best[vcodec*=h264]/best'
     
     ydl_opts = {
@@ -382,52 +96,21 @@ async def extract_info(req: ExtractRequest, background_tasks: BackgroundTasks, r
         ydl_opts['cookiefile'] = "master_cookies.txt"
     
     try:
-        info = None
-        last_error = None
-        max_attempts = 3 if proxy_pool else 1
+        def download():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                return ydl.extract_info(url, download=True)
+        info = await asyncio.to_thread(download)
         
-        for attempt in range(max_attempts):
-            chosen_proxy = None
-            if proxy_pool:
-                chosen_proxy = get_valid_proxy(proxy_pool, limit=20)
-                if chosen_proxy:
-                    ydl_opts['proxy'] = f"http://{chosen_proxy}"
-                    print(f"yt-dlp extract (download) attempt {attempt + 1} using verified proxy: {chosen_proxy}")
-                else:
-                    chosen_proxy = random.choice(proxy_pool)
-                    ydl_opts['proxy'] = f"http://{chosen_proxy}"
-                    print(f"yt-dlp extract (download) attempt {attempt + 1} using random proxy: {chosen_proxy}")
-            try:
-                def download():
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        return ydl.extract_info(url, download=True)
-                info = await asyncio.to_thread(download)
-                break
-            except Exception as e:
-                last_error = e
-                print(f"yt-dlp extract (download) attempt {attempt + 1} failed: {e}")
-                if proxy_pool and chosen_proxy in proxy_pool:
-                    try:
-                        proxy_pool.remove(chosen_proxy)
-                    except:
-                        pass
-                        
-        if not info:
-            raise last_error or Exception("Failed to download video after all proxy attempts")
-            
         platform = info.get('extractor', 'unknown').lower()
         title = info.get('title', 'Video')
         thumbnail = info.get('thumbnail', '')
         
-        # Detectar el codec original (para saber si es H.264 o H.265)
         vcodec = info.get('vcodec', '').lower()
         codec = "hevc" if ("h265" in vcodec or "hevc" in vcodec or "hvc1" in vcodec) else "h264"
         
-        # Generar el enlace hacia el endpoint del servidor
         base_url = str(request.base_url).rstrip('/')
         download_link = f"{base_url}/download/{output_filename}?codec={codec}"
         
-        # Programar la eliminación del video en 30 minutos (1800 segundos) para liberar espacio
         loop = asyncio.get_running_loop()
         loop.call_later(1800, delete_file, output_filename)
         
@@ -459,48 +142,67 @@ async def serve_file(filename: str, background_tasks: BackgroundTasks):
     )
 
 
-# ----------------- NUEVA RUTA DE PRUEBA (ILIMITADA Y CON COOKIES) -----------------
+# ----------------- RUTA BASADA EN TRANSMISIÓN EN VIVO (BRIDGE & STREAM) -----------------
 
 @app.post("/api/extract-stream")
 async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundTasks, request: Request):
     url = await clean_tiktok_url(req.url)
     
-    # Si es un enlace de TikTok, intentar extraer el original HD de TikVid o SnapVid
+    # Si es TikTok, usar el puente de Hugging Face
     if "tiktok.com" in url:
-        tikvid_res = await asyncio.to_thread(fetch_tikvid_hd_py, url, req.format_preference)
-        if not tikvid_res:
-            print("TikVid failed, trying SnapVid cushion...")
-            tikvid_res = await asyncio.to_thread(fetch_snapvid_hd_py, url, req.format_preference)
+        try:
+            print(f"TikTok URL detected. Querying Hugging Face Space bridge...")
+            async with httpx.AsyncClient() as client:
+                hf_resp = await client.post(
+                    "https://veterano901-servidorpropio.hf.space/api/extract-stream",
+                    json={"url": url, "format_preference": req.format_preference},
+                    timeout=20.0
+                )
+                if hf_resp.status_code == 200:
+                    hf_data = hf_resp.json()
+                    hf_video_url = hf_data.get("videoUrl")
+                    
+                    if hf_video_url:
+                        # Extraer el ID del stream de Hugging Face
+                        match = re.search(r'/download-stream/([^?]+)', hf_video_url)
+                        if match:
+                            hf_stream_id = match.group(1)
+                            codec_match = re.search(r'codec=([^&]+)', hf_video_url)
+                            codec = codec_match.group(1) if codec_match else "h264"
+                            
+                            # Registrar en la caché de AWS apuntando al streaming de Hugging Face
+                            stream_id = str(uuid.uuid4())
+                            stream_cache[stream_id] = {
+                                "url": f"https://veterano901-servidorpropio.hf.space/download-stream/{hf_stream_id}?codec={codec}",
+                                "headers": {
+                                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                                },
+                                "filename": f"{hf_data.get('title', 'Video_TikTok')}.mp4"
+                            }
+                            
+                            # Expirar en 30 minutos
+                            loop = asyncio.get_running_loop()
+                            loop.call_later(1800, lambda: stream_cache.pop(stream_id, None))
+                            
+                            base_url = str(request.base_url).rstrip('/')
+                            download_link = f"{base_url}/download-stream/{stream_id}?codec={codec}"
+                            
+                            return {
+                                "success": True,
+                                "platform": "tiktok",
+                                "title": hf_data.get("title", "Video de TikTok"),
+                                "thumbnail": hf_data.get("thumbnail", ""),
+                                "videoUrl": download_link,
+                                "needs_processing": False
+                            }
+                print(f"Hugging Face space responded with status {hf_resp.status_code}: {hf_resp.text}")
+                raise HTTPException(status_code=400, detail="El puente de Hugging Face devolvió un error. Intenta de nuevo.")
+        except Exception as e:
+            print(f"Hugging Face Bridge exception: {e}")
+            raise HTTPException(status_code=500, detail=f"Error en el puente de consulta: {str(e)}")
             
-        if tikvid_res:
-            stream_id = str(uuid.uuid4())
-            # Guardar en memoria
-            stream_cache[stream_id] = {
-                "url": tikvid_res["videoUrl"],
-                "headers": {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                },
-                "filename": f"{tikvid_res['title']}.mp4"
-            }
-            # Eliminar de memoria en 30 minutos
-            loop = asyncio.get_running_loop()
-            loop.call_later(1800, lambda: stream_cache.pop(stream_id, None))
-            
-            base_url = str(request.base_url).rstrip('/')
-            download_link = f"{base_url}/download-stream/{stream_id}?codec={tikvid_res['codec']}"
-            
-            return {
-                "success": True,
-                "platform": "tiktok",
-                "title": tikvid_res["title"],
-                "thumbnail": tikvid_res["thumbnail"],
-                "videoUrl": download_link,
-                "needs_processing": False
-            }
-            
-    # Seleccionar formato según la preferencia de calidad
+    # Para Twitter y otras plataformas, extracción directa desde AWS sin proxies
     fmt_str = 'bestvideo+bestaudio/best' if req.format_preference == 'best' else 'bestvideo[vcodec*=h264]+bestaudio/best[vcodec*=h264]/best'
-    
     ydl_opts = {
         'format': fmt_str,
     }
@@ -509,38 +211,10 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
         ydl_opts['cookiefile'] = "master_cookies.txt"
     
     try:
-        info = None
-        last_error = None
-        max_attempts = 3 if proxy_pool else 1
-        
-        for attempt in range(max_attempts):
-            chosen_proxy = None
-            if proxy_pool:
-                chosen_proxy = get_valid_proxy(proxy_pool, limit=20)
-                if chosen_proxy:
-                    ydl_opts['proxy'] = f"http://{chosen_proxy}"
-                    print(f"yt-dlp extract (stream) attempt {attempt + 1} using verified proxy: {chosen_proxy}")
-                else:
-                    chosen_proxy = random.choice(proxy_pool)
-                    ydl_opts['proxy'] = f"http://{chosen_proxy}"
-                    print(f"yt-dlp extract (stream) attempt {attempt + 1} using random proxy: {chosen_proxy}")
-            try:
-                def get_info():
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        return ydl.extract_info(url, download=False)
-                info = await asyncio.to_thread(get_info)
-                break
-            except Exception as e:
-                last_error = e
-                print(f"yt-dlp extract (stream) attempt {attempt + 1} failed: {e}")
-                if proxy_pool and chosen_proxy in proxy_pool:
-                    try:
-                        proxy_pool.remove(chosen_proxy)
-                    except:
-                        pass
-                        
-        if not info:
-            raise last_error or Exception("Failed to extract info via yt-dlp after all proxy attempts")
+        def get_info():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                return ydl.extract_info(url, download=False)
+        info = await asyncio.to_thread(get_info)
             
         stream_url = info.get('url')
         http_headers = info.get('http_headers', {})
@@ -557,14 +231,12 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
         
         stream_id = str(uuid.uuid4())
         
-        # Guardar en memoria
         stream_cache[stream_id] = {
             "url": stream_url,
             "headers": http_headers,
             "filename": f"{title}.mp4"
         }
         
-        # Eliminar de memoria en 30 minutos
         loop = asyncio.get_running_loop()
         loop.call_later(1800, lambda: stream_cache.pop(stream_id, None))
         
@@ -598,16 +270,13 @@ async def serve_stream_file(stream_id: str, request: Request):
     headers = stream_info["headers"]
     filename = stream_info["filename"]
     
-    # Soporte para Range Requests
     req_headers = {k: v for k, v in headers.items()}
     if "range" in request.headers:
         req_headers["range"] = request.headers["range"]
         
-    # Spoof Referer to bypass hotlink block for TikVid CDN URLs
     if "tokcdn.com" in stream_url or "snapcdn.app" in stream_url:
         req_headers["Referer"] = "https://tikvid.io/"
         
-    # Cargar las cookies desde master_cookies.txt si existe
     cookies = None
     if os.path.exists("master_cookies.txt"):
         try:
@@ -620,7 +289,6 @@ async def serve_stream_file(stream_id: str, request: Request):
     client = httpx.AsyncClient(cookies=cookies)
     
     try:
-        # Iniciar la transmisión y copiar headers
         response = await client.send(
             client.build_request("GET", stream_url, headers=req_headers),
             stream=True,
