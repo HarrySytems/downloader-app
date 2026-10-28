@@ -121,7 +121,7 @@ export async function POST(request: Request) {
         // Detectar si el usuario está en móvil o tablet para elegir el formato ideal
         const userAgent = request.headers.get('user-agent') || '';
         const isMobile = /mobile|android|iphone|ipad/i.test(userAgent);
-        const formatPreference = isMobile ? 'best' : 'h264';
+        const formatPreference = 'best';
         
         const response = await fetch(hfApiUrl, {
           method: 'POST',
