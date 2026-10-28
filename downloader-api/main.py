@@ -265,6 +265,11 @@ class ProfileRequest(BaseModel):
     url: str
 
 profile_cache = {}
+known_secuids = {
+    "zullyy_cs": "MS4wLjABAAAAnzGPOdlUYHwU5JTEkikjFo5aOcZcDEc3gG_L3er_FzJmmtdlidmNkJiDJguukOYT",
+    "aydnsarpy": "MS4wLjABAAAALMBGx1TWh1CXBuUdjYVzWd7RGMWeDNYK4So7O6nZkbunSlORgH7rvm6ak8Oo-g-i",
+    "zachking": "MS4wLjABAAAANnzJ9pdfxtlf3m5Ku_M-rCXVitJC13w4GavqyUD3RE8h1cZ-7O9FT-uQ9rCJjU_E"
+}
 
 def format_count_helper(n):
     if not n:
@@ -294,7 +299,7 @@ async def extract_profile_endpoint(req: ProfileRequest):
         
     ydl_opts = {
         'extract_flat': 'in_playlist',
-        'playlist_items': '1:18',
+        'playlist_items': '1:35',
         'quiet': True,
     }
     if os.path.exists("master_cookies.txt"):
@@ -320,9 +325,19 @@ async def extract_profile_endpoint(req: ProfileRequest):
                 "message": "Esta cuenta es privada. Solo los seguidores aprobados pueden ver su contenido.",
                 "videos": []
             }
-        if "secondary user id" in err or "not found" in err or "404" in err:
+        # Intentar fallback con channel_id (secUid) si está registrado
+        if ("secondary user id" in err or "404" in err) and cache_key in known_secuids:
+            try:
+                def get_sec_info():
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        return ydl.extract_info(f"tiktokuser:{known_secuids[cache_key]}", download=False)
+                info = await asyncio.to_thread(get_sec_info)
+            except Exception:
+                raise HTTPException(status_code=400, detail=f"El perfil @{username} no existe, es privado o no tiene publicaciones públicas.")
+        elif "secondary user id" in err or "not found" in err or "404" in err:
             raise HTTPException(status_code=400, detail=f"El perfil @{username} no existe, es privado o no tiene publicaciones públicas.")
-        raise HTTPException(status_code=400, detail=f"No se pudo cargar el perfil: {str(e)}")
+        else:
+            raise HTTPException(status_code=400, detail=f"No se pudo cargar el perfil: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
         
@@ -335,6 +350,8 @@ async def extract_profile_endpoint(req: ProfileRequest):
         if not item:
             continue
         v_id = item.get('id')
+        if item.get('channel_id'):
+            known_secuids[cache_key] = item.get('channel_id')
         v_url = item.get('url') or f"https://www.tiktok.com/@{username}/video/{v_id}"
         nickname = item.get('channel') or item.get('uploader') or nickname
         
