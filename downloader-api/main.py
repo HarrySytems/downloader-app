@@ -196,10 +196,10 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
                                 "needs_processing": False
                             }
                 print(f"Hugging Face space responded with status {hf_resp.status_code}: {hf_resp.text}")
-                raise HTTPException(status_code=400, detail="El puente de Hugging Face devolvió un error. Intenta de nuevo.")
+                raise HTTPException(status_code=400, detail="El motor de descargas está ocupado. Intenta de nuevo en unos segundos.")
         except Exception as e:
             print(f"Hugging Face Bridge exception: {e}")
-            raise HTTPException(status_code=500, detail=f"Error en el puente de consulta: {str(e)}")
+            raise HTTPException(status_code=500, detail="Error al conectar con el servidor de extracción. Intenta de nuevo.")
             
     # Para Twitter y otras plataformas, extracción directa desde AWS sin proxies
     fmt_str = 'bestvideo+bestaudio/best' if req.format_preference == 'best' else 'bestvideo[vcodec*=h264]+bestaudio/best[vcodec*=h264]/best'

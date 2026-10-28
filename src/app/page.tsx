@@ -9,8 +9,11 @@ import {
   Clipboard,
   Sun,
   Moon,
-  Check,
-  ArrowLeft
+  Search,
+  ArrowLeft,
+  Sparkles,
+  Layers,
+  Film
 } from 'lucide-react';
 import VideoCard from '@/components/VideoCard';
 import ProfileCard, { ProfileData } from '@/components/ProfileCard';
@@ -28,8 +31,6 @@ const XIcon = (props: React.SVGProps<SVGSVGElement>) => (
     <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
   </svg>
 );
-
-
 
 interface VideoData {
   platform: string;
@@ -50,7 +51,7 @@ export default function Home() {
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [resultOriginalUrl, setResultOriginalUrl] = useState('');
   const [canPaste, setCanPaste] = useState(false);
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [showPasteToast, setShowPasteToast] = useState(false);
   const [clipboardUrl, setClipboardUrl] = useState('');
 
@@ -63,11 +64,10 @@ export default function Home() {
         .catch(err => console.error('Service Worker registration failed:', err));
     }
 
-    // 2. Initialize Theme
+    // 2. Initialize Theme (default to dark for the sleek design)
     if (typeof window !== 'undefined') {
       const savedTheme = localStorage.getItem('theme');
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const initialTheme = savedTheme === 'dark' || (!savedTheme && prefersDark) ? 'dark' : 'light';
+      const initialTheme = savedTheme ? (savedTheme as 'light' | 'dark') : 'dark';
       setTheme(initialTheme);
       if (initialTheme === 'dark') {
         document.documentElement.classList.add('dark');
@@ -114,7 +114,7 @@ export default function Home() {
           setShowPasteToast(false);
         }
       } catch (err) {
-        // Silently catch clipboard permission denied or focus issues
+        // Silently catch clipboard permission denied
       }
     };
 
@@ -154,7 +154,7 @@ export default function Home() {
       }
     } catch (err) {
       console.error('Clipboard paste failed:', err);
-      setError("No pudimos leer el portapapeles. Por favor, mantén presionado el cuadro de texto y selecciona 'Pegar'.");
+      setError("No pudimos leer el portapapeles. Mantén presionado el cuadro de texto y selecciona 'Pegar'.");
     }
   };
 
@@ -187,16 +187,17 @@ export default function Home() {
 
     setLoading(true);
     setError(null);
+    
+    // CORRECCIÓN CRUCIAL: Limpiar datos anteriores de inmediato para que ningún perfil quede atascado
+    setProfileData(null);
+    setResultData(null);
 
     const isProfile = isProfileQuery(targetUrl);
-    if (isProfile) {
-      setResultData(null);
-    }
 
-    // Barra de progreso UX (falsa pero da tranquilidad al usuario)
+    // Barra de progreso UX
     let fakeProgress = 0;
     const progressInterval = setInterval(() => {
-      fakeProgress += fakeProgress < 50 ? 5 : fakeProgress < 85 ? 2 : 0.5;
+      fakeProgress += fakeProgress < 50 ? 6 : fakeProgress < 85 ? 2.5 : 0.5;
       if (fakeProgress > 95) fakeProgress = 95;
       
       const progressBar = document.getElementById('ux-progress-bar');
@@ -207,7 +208,7 @@ export default function Home() {
           ? `Cargando perfil y publicaciones... ${Math.round(fakeProgress)}%` 
           : `Analizando enlace... ${Math.round(fakeProgress)}%`;
       }
-    }, 400);
+    }, 350);
 
     try {
       if (isProfile) {
@@ -224,7 +225,9 @@ export default function Home() {
         if (response.ok && data.success) {
           setProfileData(data);
           setResultData(null);
+          setError(null);
         } else {
+          setProfileData(null);
           setError(data.error || 'No se pudo cargar el perfil de TikTok. Revisa el nombre de usuario.');
         }
       } else {
@@ -241,12 +244,16 @@ export default function Home() {
         if (response.ok && data.success) {
           setResultData(data);
           setResultOriginalUrl(targetUrl);
+          setError(null);
         } else {
+          setResultData(null);
           setError(data.error || 'Ocurrió un error inesperado al procesar el enlace.');
         }
       }
     } catch (err) {
       console.error('Submit error:', err);
+      setProfileData(null);
+      setResultData(null);
       setError('Error de conexión con el servidor. Reintenta en unos segundos.');
     } finally {
       clearInterval(progressInterval);
@@ -268,288 +275,266 @@ export default function Home() {
         const decodedUrl = decodeURIComponent(urlParam);
         setUrl(decodedUrl);
         processUrl(decodedUrl);
-        // Clear query param to prevent loop on refresh
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     }
   }, []);
 
-  // Get matching styles for active platform icon in the input bar
-  const getInputIcon = () => {
-    const iconClass = "w-6 h-6 transition-all duration-300";
-    switch (detectedPlatform) {
-      case 'tiktok':
-        return <TikTokIcon className={`${iconClass} text-slate-800`} />;
-      case 'twitter':
-        return <XIcon className={`${iconClass} text-slate-800`} />;
-      default:
-        return <LinkIcon className={`${iconClass} text-slate-400`} />;
-    }
-  };
-
   return (
-    <main className="flex-1 flex flex-col justify-center items-center px-4 sm:px-6 lg:px-8 py-12 md:py-20 max-w-4xl mx-auto w-full relative">
+    <div className="min-h-screen flex flex-col bg-[#070e20] dark:bg-[#070e20] text-white">
       
-      {/* Theme Toggle Button */}
-      <div className="absolute top-4 right-4 z-20">
-        <button
-          type="button"
-          onClick={toggleTheme}
-          className="p-2.5 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700/80 transition-all duration-200 active:scale-90"
-          title={theme === 'light' ? 'Activar modo oscuro' : 'Activar modo claro'}
-        >
-          {theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5 text-yellow-400" />}
-        </button>
-      </div>
+      {/* BARRA SUPERIOR DE ENLACE - CLON EXACTO DE LA CABECERA EN EL DISEÑO */}
+      <header className="sticky top-0 z-50 w-full border-b border-slate-800 bg-[#070e20]/95 backdrop-blur-xl px-4 sm:px-6 lg:px-8 py-3.5 shadow-lg">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3 sm:gap-4">
+          
+          {/* Logo y Marca a la izquierda */}
+          <div 
+            onClick={() => {
+              setProfileData(null);
+              setResultData(null);
+              setError(null);
+              setUrl('');
+            }}
+            className="flex items-center gap-3 cursor-pointer shrink-0 self-start md:self-auto"
+          >
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center text-white shadow-md shadow-sky-500/20">
+              <Download className="w-5 h-5 stroke-[2.5]" />
+            </div>
+            <div>
+              <h1 className="text-base sm:text-lg font-black tracking-tight text-white flex items-center gap-1.5">
+                <span>Descargador de Videos</span>
+                <span className="text-sky-400">HD</span>
+              </h1>
+              <p className="text-[11px] text-slate-400 font-medium hidden sm:block">
+                Descarga videos y perfiles de TikTok
+              </p>
+            </div>
+          </div>
 
-      {/* Title Header */}
-      <div className="text-center mb-8 md:mb-12">
-        <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4 text-slate-800 dark:text-slate-100">
-          Descargador de Videos <span className="text-blue-600 dark:text-blue-400">HD</span>
-        </h1>
-        <p className="text-slate-600 dark:text-slate-300 text-base sm:text-lg max-w-2xl mx-auto">
-          Descarga videos, historias y perfiles de <strong className="text-slate-800 dark:text-slate-100">TikTok</strong> y <strong className="text-slate-800 dark:text-slate-100">X (Twitter)</strong> al instante y sin marca de agua.
-        </p>
-      </div>
+          {/* BARRA DE ENLACE EN EL MEDIO */}
+          <div className="w-full md:max-w-2xl flex-1">
+            <form onSubmit={handleSubmit} className="w-full">
+              <div className="bg-[#0b1428] rounded-xl px-2 py-1.5 flex items-center border border-slate-700/80 focus-within:border-sky-500 focus-within:ring-2 focus-within:ring-sky-500/20 transition-all shadow-inner">
+                
+                {/* Ícono de cadena enlace */}
+                <div className="pl-2.5 pr-2 select-none text-sky-400">
+                  <LinkIcon className="w-4 h-4" />
+                </div>
 
-      {/* Main Card/Input Panel */}
-      <div className="w-full mb-10">
-        <form onSubmit={handleSubmit} className="w-full">
-          <div className="bg-white dark:bg-slate-800/80 dark:backdrop-blur-sm shadow-sm rounded-lg p-2 flex items-center border border-slate-200 dark:border-slate-700 transition-all duration-300 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 dark:focus-within:ring-blue-900/30">
-            
-            {/* Network Icon Left */}
-            <div className="pl-3 pr-2 select-none">
-              {getInputIcon()}
+                {/* Input de texto */}
+                <input 
+                  type="text" 
+                  placeholder="Pega el enlace de TikTok o nombre de usuario..."
+                  value={url}
+                  onChange={(e) => {
+                    setUrl(e.target.value);
+                    setError(null);
+                  }}
+                  required
+                  className="flex-1 bg-transparent py-1.5 px-2 text-white placeholder-slate-400 text-xs sm:text-sm focus:outline-none min-w-0"
+                />
+
+                {/* Botones Limpiar / Pegar */}
+                <div className="flex items-center gap-1 shrink-0 pr-1">
+                  {url && (
+                    <button
+                      type="button"
+                      onClick={handleClear}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                      title="Limpiar"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
+                  {canPaste && !url && (
+                    <button
+                      type="button"
+                      onClick={handlePaste}
+                      className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700 transition-colors"
+                    >
+                      <Clipboard className="w-3 h-3" />
+                      <span>Pegar</span>
+                    </button>
+                  )}
+
+                  {/* Botón Buscar estilo de la imagen */}
+                  <button
+                    type="submit"
+                    disabled={loading || !url.trim()}
+                    className="flex items-center gap-1.5 py-2 px-4 rounded-lg font-bold text-xs text-white bg-sky-500 hover:bg-sky-400 shadow-md shadow-sky-500/25 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  >
+                    {loading ? (
+                      <>
+                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span className="hidden sm:inline">Buscando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-3.5 h-3.5" />
+                        <span>Buscar</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+              </div>
+            </form>
+          </div>
+
+          {/* Selector de Tema a la derecha */}
+          <div className="hidden md:flex items-center shrink-0">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/80 text-slate-300 hover:text-white hover:bg-slate-700 transition-all"
+              title="Cambiar tema"
+            >
+              {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4 text-yellow-400" />}
+            </button>
+          </div>
+
+        </div>
+      </header>
+
+      {/* ÁREA DE CONTENIDO PRINCIPAL */}
+      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 md:py-8">
+
+        {/* Notificación de Portapapeles Flotante */}
+        {showPasteToast && (
+          <div className="fixed bottom-6 right-6 z-50 bg-[#0f172a] border border-sky-500/40 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-bounce">
+            <div className="w-8 h-8 rounded-full bg-sky-500/20 text-sky-400 flex items-center justify-center shrink-0">
+              <LinkIcon className="w-4 h-4" />
+            </div>
+            <div className="text-xs">
+              <span className="font-bold block">Enlace detectado</span>
+              <span className="text-slate-400 truncate max-w-[180px] block">{clipboardUrl}</span>
+            </div>
+            <button
+              onClick={handlePasteToastAccept}
+              className="px-3 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-white text-xs font-bold transition-all"
+            >
+              Pegar
+            </button>
+          </div>
+        )}
+
+        {/* Alerta de Error Clara y Limpia */}
+        {error && (
+          <div className="w-full mb-6 flex items-start gap-3 p-4 rounded-2xl border border-red-500/40 bg-red-950/30 text-red-200 text-sm shadow-lg backdrop-blur-sm">
+            <AlertCircle className="w-5 h-5 shrink-0 text-red-400 mt-0.5" />
+            <p className="leading-relaxed font-medium">{error}</p>
+          </div>
+        )}
+
+        {/* Barra de Carga Dinámica */}
+        {loading && (
+          <div className="w-full mb-8 bg-[#0b1328]/90 rounded-3xl p-8 border border-slate-800 flex flex-col items-center justify-center py-14 gap-5 shadow-xl backdrop-blur-md">
+            <div className="w-full max-w-md flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-3 border-sky-500 border-t-transparent rounded-full animate-spin mb-1" />
+              <span id="ux-progress-text" className="text-slate-200 text-sm font-bold">
+                Analizando enlace... 0%
+              </span>
+              
+              <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden border border-slate-700/50">
+                <div 
+                  id="ux-progress-bar"
+                  className="h-full bg-gradient-to-r from-sky-500 to-blue-600 transition-all duration-300 ease-out"
+                  style={{ width: '0%' }}
+                />
+              </div>
+              <span className="text-[11px] text-slate-400 text-center mt-1">
+                Obteniendo multimedia en máxima calidad Full HD 1080p...
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Si hay perfil cargado -> Tarjeta de Perfil Estilo Mockup */}
+        {profileData && !loading && (
+          <div className="w-full mb-10">
+            <ProfileCard
+              data={profileData}
+              onSelectVideo={(videoUrl) => {
+                processUrl(videoUrl);
+              }}
+              onBack={() => setProfileData(null)}
+            />
+          </div>
+        )}
+
+        {/* Si hay un video individual seleccionado */}
+        {resultData && !loading && (
+          <div className="w-full mb-10 space-y-4">
+            {profileData && (
+              <button
+                type="button"
+                onClick={() => setResultData(null)}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-400 font-semibold text-xs border border-slate-700 shadow-sm transition-all"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>← Volver a las publicaciones de @{profileData.username}</span>
+              </button>
+            )}
+            <VideoCard data={resultData} originalUrl={resultOriginalUrl} />
+          </div>
+        )}
+
+        {/* Estado inicial cuando no hay búsquedas activas */}
+        {!profileData && !resultData && !loading && !error && (
+          <div className="py-12 sm:py-20 flex flex-col items-center text-center max-w-2xl mx-auto">
+            <div className="w-16 h-16 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center mb-6 shadow-xl shadow-sky-500/5">
+              <Download className="w-8 h-8" />
             </div>
 
-            {/* Input URL field */}
-            <input 
-              type="text" 
-              placeholder="Pega enlace de video, historia o perfil de TikTok (@usuario)..."
-              value={url}
-              onChange={(e) => {
-                setUrl(e.target.value);
-                setError(null);
-              }}
-              required
-              className="flex-1 bg-transparent py-3 px-2 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none text-sm sm:text-base min-w-0"
-            />
+            <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight mb-3">
+              Descarga Cualquier Video o Perfil Completo
+            </h2>
 
-            {/* Clear / Paste / Action Buttons Right */}
-            <div className="flex items-center gap-1.5 pr-1 shrink-0">
-              {url && (
-                <button
-                  type="button"
-                  onClick={handleClear}
-                  className="p-2 rounded-xl text-slate-400 dark:text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all active:scale-90"
-                  title="Limpiar enlace"
-                >
-                  <Trash2 className="w-4 sm:w-5 h-4 sm:h-5" />
-                </button>
-              )}
+            <p className="text-sm sm:text-base text-slate-400 mb-8 max-w-md leading-relaxed">
+              Ingresa el enlace de un video, historia o busca a cualquier creador de TikTok con su <strong className="text-sky-400">@usuario</strong> para ver su perfil y descargar sus videos en HD.
+            </p>
 
-              {canPaste && !url && (
-                <button
-                  type="button"
-                  onClick={handlePaste}
-                  className="flex items-center gap-1 py-2 px-3 rounded-xl text-indigo-600 dark:text-indigo-300 hover:text-indigo-300 hover:bg-indigo-500/10 transition-all font-semibold text-xs sm:text-sm active:scale-95 border border-indigo-500/15"
-                >
-                  <Clipboard className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  <span className="hidden sm:inline">Pegar</span>
-                </button>
-              )}
-
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <span className="text-xs text-slate-500 mr-1 font-semibold">Ejemplos para probar:</span>
               <button
-                type="submit"
-                disabled={loading || !url.trim()}
-                className="flex items-center gap-1.5 py-3 px-5 sm:px-6 rounded-md font-semibold text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 transition-colors duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                type="button"
+                onClick={() => {
+                  setUrl('@zullyy_cs');
+                  processUrl('@zullyy_cs');
+                }}
+                className="px-3 py-1.5 rounded-full bg-slate-800/80 hover:bg-sky-500/20 hover:text-sky-400 text-slate-300 text-xs font-semibold border border-slate-700 transition-colors"
               >
-                {loading ? (
-                  <>
-                    <div className="spinner !w-4 !h-4 !border-t-white" />
-                    <span className="hidden sm:inline">Procesando...</span>
-                  </>
-                ) : (
-                  <>
-                    <Download className="w-4 h-4" />
-                    <span>Descargar</span>
-                  </>
-                )}
+                @zullyy_cs
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setUrl('@aydnsarpy');
+                  processUrl('@aydnsarpy');
+                }}
+                className="px-3 py-1.5 rounded-full bg-slate-800/80 hover:bg-sky-500/20 hover:text-sky-400 text-slate-300 text-xs font-semibold border border-slate-700 transition-colors"
+              >
+                @aydnsarpy
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setUrl('@zachking');
+                  processUrl('@zachking');
+                }}
+                className="px-3 py-1.5 rounded-full bg-slate-800/80 hover:bg-sky-500/20 hover:text-sky-400 text-slate-300 text-xs font-semibold border border-slate-700 transition-colors"
+              >
+                @zachking
               </button>
             </div>
-
           </div>
-        </form>
-      </div>
+        )}
 
-      {/* Dynamic Results Display */}
-      {error && (
-        <div className="w-full mb-8 flex items-start gap-3 p-4 rounded-md border border-red-200 bg-red-50 text-red-700 dark:bg-red-950/20 dark:border-red-900/40 dark:text-red-300 text-sm">
-          <AlertCircle className="w-5 h-5 shrink-0 text-red-500 mt-0.5" />
-          <p className="leading-relaxed">{error}</p>
-        </div>
-      )}
+      </main>
 
-      {loading && !resultData && (
-        <div className="w-full mb-8 bg-white dark:bg-slate-800 rounded-md p-6 border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center py-10 gap-5 shadow-sm">
-          <div className="w-full max-w-sm flex flex-col items-center gap-3">
-            <div className="spinner !w-8 !h-8 !border-t-blue-600 mb-2" />
-            <span id="ux-progress-text" className="text-slate-600 dark:text-slate-300 text-sm font-medium">Analizando enlace... 0%</span>
-            
-            {/* Progress bar track */}
-            <div className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden border border-slate-200/50 dark:border-slate-600/50">
-              {/* Progress bar fill */}
-              <div 
-                id="ux-progress-bar"
-                className="h-full bg-blue-600 transition-all duration-300 ease-out"
-                style={{ width: '0%' }}
-              />
-            </div>
-            <span className="text-[11px] text-slate-400 dark:text-slate-500 text-center mt-1">Descargando en máxima calidad. Esto puede tomar unos segundos...</span>
-          </div>
-        </div>
-      )}
-
-      {/* Return to profile button when viewing single video */}
-      {profileData && resultData && !loading && (
-        <div className="w-full mb-4">
-          <button
-            type="button"
-            onClick={() => setResultData(null)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 font-semibold text-sm hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all active:scale-95 border border-blue-200/50 dark:border-blue-800/40 shadow-xs"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>← Volver a las publicaciones de @{profileData.username}</span>
-          </button>
-        </div>
-      )}
-
-      {/* Profile Card View */}
-      {profileData && !resultData && !loading && (
-        <div className="w-full mb-10">
-          <ProfileCard
-            data={profileData}
-            onSelectVideo={(videoUrl) => {
-              processUrl(videoUrl);
-            }}
-            onBack={() => setProfileData(null)}
-          />
-        </div>
-      )}
-
-      {resultData && (
-        <div className="w-full mb-10">
-          <VideoCard data={resultData} originalUrl={resultOriginalUrl} />
-        </div>
-      )}
-
-      {/* Value Grid / Info cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 w-full mt-6 md:mt-12 mb-10">
-        
-        {/* Card 1 */}
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col gap-3">
-          <h3 className="text-slate-800 dark:text-slate-100 font-semibold text-base mb-1">Descarga Instantánea</h3>
-          <p className="text-slate-600 dark:text-slate-300 text-xs sm:text-sm leading-relaxed">
-            Sin esperar segundos de publicidad. Obtén tus enlaces de descarga directos de forma inmediata.
-          </p>
-        </div>
-
-        {/* Card 2 */}
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col gap-3">
-          <h3 className="text-slate-800 dark:text-slate-100 font-semibold text-base mb-1">100% Seguro y Privado</h3>
-          <p className="text-slate-600 dark:text-slate-300 text-xs sm:text-sm leading-relaxed">
-            No guardamos registro de tus descargas ni recopilamos datos personales. Libre de virus y malware.
-          </p>
-        </div>
-
-        {/* Card 3 */}
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col gap-3">
-          <h3 className="text-slate-800 dark:text-slate-100 font-semibold text-base mb-1">Optimizado para Móvil</h3>
-          <p className="text-slate-600 dark:text-slate-300 text-xs sm:text-sm leading-relaxed">
-            Guarda tus videos directamente en la galería de tu Android o iOS como si fuera una App nativa.
-          </p>
-        </div>
-
-      </div>
-
-      {/* FAQ Section */}
-      <div className="w-full max-w-3xl mx-auto mb-16 text-left">
-        <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-6 text-center">Preguntas más frecuentes</h2>
-        
-        <div className="space-y-6">
-          <div>
-            <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-2">¿Por qué usar ByteDownloader HD para descargar videos de TikTok o X?</h3>
-            <p className="text-slate-600 dark:text-slate-300 text-sm">
-              ByteDownloader HD es la herramienta más estable y rápida para descargar videos sin marca de agua. Nuestro sistema inteligente es capaz de descargar historias de TikTok y videos de X (Twitter) en la más alta calidad posible, de manera totalmente gratuita.
-            </p>
-          </div>
-
-          <div>
-            <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-2">¿Cómo descargar videos en Android o iOS?</h3>
-            <p className="text-slate-600 dark:text-slate-300 text-sm">
-              Simplemente copia el enlace del video desde la aplicación de TikTok o X, pégalo en nuestro buscador de arriba y presiona "Descargar". El archivo se guardará directamente en la galería de tu dispositivo móvil.
-            </p>
-          </div>
-
-          <div>
-            <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-2">¿Por qué no puedo descargar algunos videos?</h3>
-            <p className="text-slate-600 dark:text-slate-300 text-sm mb-2">Posibles causas de errores al descargar videos:</p>
-            <ul className="list-disc pl-5 text-slate-600 dark:text-slate-300 text-sm space-y-1">
-              <li>El video ha sido eliminado o la cuenta ha sido suspendida.</li>
-              <li>El video está restringido geográficamente.</li>
-              <li>Estamos experimentando bloqueos temporales por parte de la plataforma. Si tienes este problema, intenta nuevamente más tarde.</li>
-            </ul>
-            <p className="text-slate-600 dark:text-slate-300 text-sm mt-2">
-              Nota: Si un perfil público de TikTok te da error, nuestro motor intentará usar una ruta alternativa de respaldo para extraer la historia o video.
-            </p>
-          </div>
-
-          <div>
-            <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-2">¿Tengo que pagar por descargar videos?</h3>
-            <p className="text-slate-600 dark:text-slate-300 text-sm">
-              No, ByteDownloader HD es una herramienta 100% gratuita que te ayuda a descargar tus contenidos favoritos de TikTok y X sin ningún costo.
-            </p>
-          </div>
-
-          <div>
-            <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-2">¿ByteDownloader HD guarda copias de los videos descargados?</h3>
-            <p className="text-slate-600 dark:text-slate-300 text-sm">
-              Absolutamente no. No almacenamos videos ni guardamos registros de lo que descargas. Todos los archivos multimedia provienen directamente de los servidores originales (CDN) de las respectivas plataformas.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Floating Clipboard Toast */}
-      {showPasteToast && (
-        <div className="fixed bottom-5 right-5 z-50 max-w-sm w-[90%] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl p-4 animate-float flex flex-col gap-3">
-          <div className="flex items-start gap-2.5">
-            <Clipboard className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
-            <div className="min-w-0 flex-1">
-              <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Enlace detectado</h4>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate break-all">{clipboardUrl}</p>
-            </div>
-          </div>
-          <div className="flex gap-2 justify-end">
-            <button
-              type="button"
-              onClick={() => setShowPasteToast(false)}
-              className="px-3 py-1.5 rounded text-xs font-semibold text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/80 transition-colors"
-            >
-              Ignorar
-            </button>
-            <button
-              type="button"
-              onClick={handlePasteToastAccept}
-              className="px-3 py-1.5 rounded text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 transition-colors flex items-center gap-1"
-            >
-              <Check className="w-3.5 h-3.5" />
-              <span>Pegar enlace</span>
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Footer */}
       <Footer />
-    </main>
+    </div>
   );
 }
