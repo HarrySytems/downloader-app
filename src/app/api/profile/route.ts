@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
@@ -23,40 +23,40 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'Nombre de usuario inválido.' }, { status: 400 });
     }
 
-    // Probar consultar TikWM User Info API desde Vercel
+    // 1. Consultar el motor backend en AWS EC2 (que corre extract_flat sin baneos)
+    const backendUrl = 'http://3.19.208.2:8000/api/profile';
     try {
-      const tikwmUrl = `https://tikwm.com/api/user/info?unique_id=${encodeURIComponent(username)}`;
-      const resp = await fetch(tikwmUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Referer': 'https://tikwm.com/',
-        },
+      const resp = await fetch(backendUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: username }),
         cache: 'no-store'
       });
 
-      const text = await resp.text();
-      let data = null;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        // Si devolvió HTML de Cloudflare
+      if (resp.ok) {
+        const data = await resp.json();
+        return NextResponse.json(data);
+      } else {
+        const errData = await resp.json().catch(() => null);
+        let errorMsg = errData?.detail || 'No se pudo cargar el perfil en este momento.';
+        if (errorMsg.toLowerCase().includes('unable to extract secondary user id') || errorMsg.toLowerCase().includes('not found')) {
+          errorMsg = `El usuario @${username} no existe, es privado o no tiene videos públicos disponibles.`;
+        }
         return NextResponse.json({
           success: false,
-          isCloudflare: true,
-          preview: text.slice(0, 300)
-        });
+          error: errorMsg
+        }, { status: resp.status });
       }
-
-      return NextResponse.json({
-        success: true,
-        tikwmData: data
-      });
-
     } catch (err: any) {
-      return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+      console.error('Profile backend fetch error:', err);
+      return NextResponse.json({
+        success: false,
+        error: 'El motor de perfiles está ocupado. Intenta de nuevo en unos segundos.'
+      }, { status: 500 });
     }
 
   } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    console.error('Global profile route error:', err);
+    return NextResponse.json({ success: false, error: 'Ocurrió un error interno en el servidor.' }, { status: 500 });
   }
 }

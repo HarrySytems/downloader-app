@@ -9,9 +9,11 @@ import {
   Clipboard,
   Sun,
   Moon,
-  Check
+  Check,
+  ArrowLeft
 } from 'lucide-react';
 import VideoCard from '@/components/VideoCard';
+import ProfileCard, { ProfileData } from '@/components/ProfileCard';
 import Footer from '@/components/Footer';
 
 // Custom SVG Icons for Brands
@@ -45,6 +47,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resultData, setResultData] = useState<VideoData | null>(null);
+  const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [resultOriginalUrl, setResultOriginalUrl] = useState('');
   const [canPaste, setCanPaste] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
@@ -159,6 +162,24 @@ export default function Home() {
     setUrl('');
     setError(null);
     setResultData(null);
+    setProfileData(null);
+  };
+
+  const isProfileQuery = (input: string) => {
+    const clean = input.trim();
+    const lower = clean.toLowerCase();
+    
+    if (lower.includes('/video/') || lower.includes('/photo/') || lower.includes('/status/')) {
+      return false;
+    }
+    if (lower.startsWith('@')) return true;
+    if (lower.includes('tiktok.com/@') && !lower.includes('/video/') && !lower.includes('/photo/')) return true;
+    
+    if (!lower.startsWith('http://') && !lower.startsWith('https://') && /^[a-zA-Z0-9_.-]+$/.test(clean) && !lower.includes('.com') && !lower.includes('.lat') && !lower.includes('/')) {
+      return true;
+    }
+
+    return false;
   };
 
   const processUrl = async (targetUrl: string) => {
@@ -166,7 +187,11 @@ export default function Home() {
 
     setLoading(true);
     setError(null);
-    setResultData(null);
+
+    const isProfile = isProfileQuery(targetUrl);
+    if (isProfile) {
+      setResultData(null);
+    }
 
     // Barra de progreso UX (falsa pero da tranquilidad al usuario)
     let fakeProgress = 0;
@@ -177,25 +202,48 @@ export default function Home() {
       const progressBar = document.getElementById('ux-progress-bar');
       const progressText = document.getElementById('ux-progress-text');
       if (progressBar) progressBar.style.width = `${fakeProgress}%`;
-      if (progressText) progressText.innerText = `Analizando enlace... ${Math.round(fakeProgress)}%`;
-    }, 500);
+      if (progressText) {
+        progressText.innerText = isProfile 
+          ? `Cargando perfil y publicaciones... ${Math.round(fakeProgress)}%` 
+          : `Analizando enlace... ${Math.round(fakeProgress)}%`;
+      }
+    }, 400);
 
     try {
-      const response = await fetch('/api/download', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url: targetUrl }),
-      });
+      if (isProfile) {
+        const response = await fetch('/api/profile', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ url: targetUrl }),
+        });
 
-      const data = await response.json();
+        const data = await response.json();
 
-      if (response.ok && data.success) {
-        setResultData(data);
-        setResultOriginalUrl(targetUrl);
+        if (response.ok && data.success) {
+          setProfileData(data);
+          setResultData(null);
+        } else {
+          setError(data.error || 'No se pudo cargar el perfil de TikTok. Revisa el nombre de usuario.');
+        }
       } else {
-        setError(data.error || 'Ocurrió un error inesperado al procesar el enlace.');
+        const response = await fetch('/api/download', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ url: targetUrl }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+          setResultData(data);
+          setResultOriginalUrl(targetUrl);
+        } else {
+          setError(data.error || 'Ocurrió un error inesperado al procesar el enlace.');
+        }
       }
     } catch (err) {
       console.error('Submit error:', err);
@@ -260,7 +308,7 @@ export default function Home() {
           Descargador de Videos <span className="text-blue-600 dark:text-blue-400">HD</span>
         </h1>
         <p className="text-slate-600 dark:text-slate-300 text-base sm:text-lg max-w-2xl mx-auto">
-          Descarga videos e historias de <strong className="text-slate-800 dark:text-slate-100">TikTok</strong> y <strong className="text-slate-800 dark:text-slate-100">X (Twitter)</strong> al instante y sin marca de agua.
+          Descarga videos, historias y perfiles de <strong className="text-slate-800 dark:text-slate-100">TikTok</strong> y <strong className="text-slate-800 dark:text-slate-100">X (Twitter)</strong> al instante y sin marca de agua.
         </p>
       </div>
 
@@ -276,8 +324,8 @@ export default function Home() {
 
             {/* Input URL field */}
             <input 
-              type="url" 
-              placeholder="Pega el enlace de TikTok o X aquí..."
+              type="text" 
+              placeholder="Pega enlace de video, historia o perfil de TikTok (@usuario)..."
               value={url}
               onChange={(e) => {
                 setUrl(e.target.value);
@@ -359,6 +407,33 @@ export default function Home() {
             </div>
             <span className="text-[11px] text-slate-400 dark:text-slate-500 text-center mt-1">Descargando en máxima calidad. Esto puede tomar unos segundos...</span>
           </div>
+        </div>
+      )}
+
+      {/* Return to profile button when viewing single video */}
+      {profileData && resultData && !loading && (
+        <div className="w-full mb-4">
+          <button
+            type="button"
+            onClick={() => setResultData(null)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 font-semibold text-sm hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all active:scale-95 border border-blue-200/50 dark:border-blue-800/40 shadow-xs"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>← Volver a las publicaciones de @{profileData.username}</span>
+          </button>
+        </div>
+      )}
+
+      {/* Profile Card View */}
+      {profileData && !resultData && !loading && (
+        <div className="w-full mb-10">
+          <ProfileCard
+            data={profileData}
+            onSelectVideo={(videoUrl) => {
+              processUrl(videoUrl);
+            }}
+            onBack={() => setProfileData(null)}
+          />
         </div>
       )}
 

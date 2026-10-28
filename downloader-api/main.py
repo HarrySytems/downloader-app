@@ -260,6 +260,134 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
+
+class ProfileRequest(BaseModel):
+    url: str
+
+profile_cache = {}
+
+def format_count_helper(n):
+    if not n:
+        return '0'
+    if n >= 1_000_000:
+        return f'{n / 1_000_000:.1f}M'.replace('.0M', 'M')
+    if n >= 1_000:
+        return f'{n / 1_000:.1f}K'.replace('.0K', 'K')
+    return str(n)
+
+@app.post("/api/profile")
+async def extract_profile_endpoint(req: ProfileRequest):
+    raw_url = req.url.strip()
+    username = raw_url
+    if "tiktok.com" in username:
+        m = re.search(r'@([a-zA-Z0-9_.-]+)', username)
+        if m:
+            username = m.group(1)
+    username = username.lstrip('@').split('?')[0].split('/')[0]
+    
+    if not username:
+        raise HTTPException(status_code=400, detail="Por favor ingresa un nombre de usuario o enlace de perfil válido.")
+        
+    cache_key = username.lower()
+    if cache_key in profile_cache:
+        return profile_cache[cache_key]
+        
+    ydl_opts = {
+        'extract_flat': 'in_playlist',
+        'playlist_items': '1:18',
+        'quiet': True,
+    }
+    if os.path.exists("master_cookies.txt"):
+        ydl_opts['cookiefile'] = "master_cookies.txt"
+    elif os.path.exists("www.tiktok.com_cookies.txt"):
+        ydl_opts['cookiefile'] = "www.tiktok.com_cookies.txt"
+        
+    def get_info():
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            return ydl.extract_info(f"https://www.tiktok.com/@{username}", download=False)
+            
+    try:
+        info = await asyncio.to_thread(get_info)
+    except yt_dlp.utils.DownloadError as e:
+        err = str(e).lower()
+        if "private" in err:
+            return {
+                "success": True,
+                "is_private": True,
+                "username": username,
+                "nickname": username,
+                "avatar": "",
+                "message": "Esta cuenta es privada. Solo los seguidores aprobados pueden ver su contenido.",
+                "videos": []
+            }
+        raise HTTPException(status_code=400, detail=f"No se pudo cargar el perfil: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+        
+    entries = info.get('entries') or []
+    videos = []
+    nickname = username
+    avatar = ""
+    
+    for item in entries:
+        if not item:
+            continue
+        v_id = item.get('id')
+        v_url = item.get('url') or f"https://www.tiktok.com/@{username}/video/{v_id}"
+        nickname = item.get('channel') or item.get('uploader') or nickname
+        
+        thumbs = item.get('thumbnails') or []
+        thumb_url = ""
+        for t in thumbs:
+            if t.get('id') in ['cover', 'originCover', 'dynamicCover'] and t.get('url'):
+                thumb_url = t.get('url')
+                break
+        if not thumb_url and thumbs:
+            thumb_url = thumbs[0].get('url', '')
+            
+        dur = item.get('duration') or 0
+        dur_str = f"{int(dur // 60)}:{int(dur % 60):02d}" if dur else ""
+        
+        view_cnt = item.get('view_count') or 0
+        like_cnt = item.get('like_count') or 0
+        
+        videos.append({
+            "id": v_id,
+            "url": v_url,
+            "title": item.get('title') or f"Video de @{username}",
+            "thumbnail": thumb_url,
+            "duration": dur_str,
+            "views": format_count_helper(view_cnt),
+            "likes": format_count_helper(like_cnt),
+        })
+        
+    if videos:
+        try:
+            async with httpx.AsyncClient() as client:
+                tw_res = await client.post('https://tikwm.com/api/', data={'url': videos[0]['url']}, timeout=5.0)
+                if tw_res.status_code == 200:
+                    tw_data = tw_res.json().get('data', {})
+                    avatar = tw_data.get('author', {}).get('avatar') or ""
+                    if not nickname or nickname == username:
+                        nickname = tw_data.get('author', {}).get('nickname') or nickname
+        except Exception:
+            pass
+            
+    res = {
+        "success": True,
+        "is_private": False,
+        "username": username,
+        "nickname": nickname,
+        "avatar": avatar,
+        "video_count": len(videos),
+        "videos": videos
+    }
+    
+    profile_cache[cache_key] = res
+    loop = asyncio.get_running_loop()
+    loop.call_later(600, lambda: profile_cache.pop(cache_key, None))
+    return res
+
 @app.get("/download-stream/{stream_id}")
 async def serve_stream_file(stream_id: str, request: Request):
     if stream_id not in stream_cache:
