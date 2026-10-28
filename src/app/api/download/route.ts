@@ -121,7 +121,8 @@ export async function POST(request: Request) {
         // Detectar si el usuario está en móvil o tablet para elegir el formato ideal
         const userAgent = request.headers.get('user-agent') || '';
         const isMobile = /mobile|android|iphone|ipad/i.test(userAgent);
-        const formatPreference = 'best';
+        // Forzar 'h264' para compatibilidad total con Windows (Películas y TV / Media Player), Mac, iOS y Android
+        const formatPreference = 'h264';
         
         const response = await fetch(hfApiUrl, {
           method: 'POST',

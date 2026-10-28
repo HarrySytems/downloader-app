@@ -402,7 +402,8 @@ async def extract_profile_endpoint(req: ProfileRequest):
                             "views": format_count_helper(s.get('play_count', 0)),
                             "likes": format_count_helper(s.get('digg_count', 0)),
                             "created_at": s.get('create_time', 0),
-                            "is_story": True
+                            "is_story": True,
+                            "download_url": s.get('play') or ""
                         })
     except Exception as e:
         print(f"Error fetching stories for {username}: {e}")
