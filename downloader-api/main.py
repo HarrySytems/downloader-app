@@ -263,6 +263,8 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
 
 class ProfileRequest(BaseModel):
     url: str
+    start: int = 1
+    count: int = 35
 
 profile_cache = {}
 known_secuids = {
@@ -293,13 +295,17 @@ async def extract_profile_endpoint(req: ProfileRequest):
     if not username:
         raise HTTPException(status_code=400, detail="Por favor ingresa un nombre de usuario o enlace de perfil válido.")
         
-    cache_key = username.lower()
+    start_idx = max(1, req.start)
+    count = min(50, max(1, req.count))
+    end_idx = start_idx + count - 1
+    
+    cache_key = f"{username.lower()}_{start_idx}_{count}"
     if cache_key in profile_cache:
         return profile_cache[cache_key]
         
     ydl_opts = {
         'extract_flat': 'in_playlist',
-        'playlist_items': '1:35',
+        'playlist_items': f'{start_idx}:{end_idx}',
         'quiet': True,
     }
     if os.path.exists("master_cookies.txt"):
@@ -307,12 +313,16 @@ async def extract_profile_endpoint(req: ProfileRequest):
     elif os.path.exists("www.tiktok.com_cookies.txt"):
         ydl_opts['cookiefile'] = "www.tiktok.com_cookies.txt"
         
-    def get_info():
+    target_endpoint = f"https://www.tiktok.com/@{username}"
+    if start_idx > 1 and username.lower() in known_secuids:
+        target_endpoint = f"tiktokuser:{known_secuids[username.lower()]}"
+        
+    def get_info(endpoint):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            return ydl.extract_info(f"https://www.tiktok.com/@{username}", download=False)
+            return ydl.extract_info(endpoint, download=False)
             
     try:
-        info = await asyncio.to_thread(get_info)
+        info = await asyncio.to_thread(get_info, target_endpoint)
     except yt_dlp.utils.DownloadError as e:
         err = str(e).lower()
         if "private" in err:
@@ -323,15 +333,14 @@ async def extract_profile_endpoint(req: ProfileRequest):
                 "nickname": username,
                 "avatar": "",
                 "message": "Esta cuenta es privada. Solo los seguidores aprobados pueden ver su contenido.",
-                "videos": []
+                "videos": [],
+                "has_more": False,
+                "next_start": 0
             }
         # Intentar fallback con channel_id (secUid) si está registrado
-        if ("secondary user id" in err or "404" in err) and cache_key in known_secuids:
+        if ("secondary user id" in err or "404" in err) and username.lower() in known_secuids:
             try:
-                def get_sec_info():
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        return ydl.extract_info(f"tiktokuser:{known_secuids[cache_key]}", download=False)
-                info = await asyncio.to_thread(get_sec_info)
+                info = await asyncio.to_thread(get_info, f"tiktokuser:{known_secuids[username.lower()]}")
             except Exception:
                 raise HTTPException(status_code=400, detail=f"El perfil @{username} no existe, es privado o no tiene publicaciones públicas.")
         elif "secondary user id" in err or "not found" in err or "404" in err:
@@ -351,7 +360,7 @@ async def extract_profile_endpoint(req: ProfileRequest):
             continue
         v_id = item.get('id')
         if item.get('channel_id'):
-            known_secuids[cache_key] = item.get('channel_id')
+            known_secuids[username.lower()] = item.get('channel_id')
         v_url = item.get('url') or f"https://www.tiktok.com/@{username}/video/{v_id}"
         nickname = item.get('channel') or item.get('uploader') or nickname
         
@@ -378,54 +387,58 @@ async def extract_profile_endpoint(req: ProfileRequest):
             "duration": dur_str,
             "views": format_count_helper(view_cnt),
             "likes": format_count_helper(like_cnt),
+            "raw_views": view_cnt,
+            "raw_likes": like_cnt,
+            "timestamp": item.get('timestamp') or 0
         })
         
-    if videos:
+    stories = []
+    if start_idx == 1:
+        if videos:
+            try:
+                async with httpx.AsyncClient() as client:
+                    tw_res = await client.post('https://tikwm.com/api/', data={'url': videos[0]['url']}, timeout=5.0)
+                    if tw_res.status_code == 200:
+                        tw_data = tw_res.json().get('data', {})
+                        avatar = tw_data.get('author', {}).get('avatar') or ""
+                        if not nickname or nickname == username:
+                            nickname = tw_data.get('author', {}).get('nickname') or nickname
+            except Exception:
+                pass
+                
+        # Extraer historias activas (24h) del usuario
         try:
             async with httpx.AsyncClient() as client:
-                tw_res = await client.post('https://tikwm.com/api/', data={'url': videos[0]['url']}, timeout=5.0)
-                if tw_res.status_code == 200:
-                    tw_data = tw_res.json().get('data', {})
-                    avatar = tw_data.get('author', {}).get('avatar') or ""
-                    if not nickname or nickname == username:
-                        nickname = tw_data.get('author', {}).get('nickname') or nickname
-        except Exception:
-            pass
-            
-    # Extraer historias activas (24h) del usuario
-    stories = []
-    try:
-        async with httpx.AsyncClient() as client:
-            st_res = await client.get(f'https://tikwm.com/api/user/story?unique_id={username}', timeout=6.0)
-            if st_res.status_code == 200:
-                st_data = st_res.json()
-                if st_data.get('code') == 0 and st_data.get('data', {}).get('videos'):
-                    for s in st_data['data']['videos']:
-                        s_id = s.get('video_id')
-                        if not s_id:
-                            continue
-                        s_url = f"https://www.tiktok.com/@{username}/video/{s_id}"
-                        s_dur = s.get('duration') or 15
-                        s_dur_str = f"{int(s_dur // 60)}:{int(s_dur % 60):02d}" if s_dur else "0:15"
-                        s_cover = s.get('cover') or s.get('origin_cover') or s.get('ai_dynamic_cover') or ""
-                        if not avatar:
-                            avatar = s.get('author', {}).get('avatar') or avatar
-                        if not nickname or nickname == username:
-                            nickname = s.get('author', {}).get('nickname') or nickname
-                        stories.append({
-                            "id": s_id,
-                            "url": s_url,
-                            "title": s.get('title') or f"Historia de @{username}",
-                            "thumbnail": s_cover,
-                            "duration": s_dur_str,
-                            "views": format_count_helper(s.get('play_count', 0)),
-                            "likes": format_count_helper(s.get('digg_count', 0)),
-                            "created_at": s.get('create_time', 0),
-                            "is_story": True,
-                            "download_url": s.get('play') or ""
-                        })
-    except Exception as e:
-        print(f"Error fetching stories for {username}: {e}")
+                st_res = await client.get(f'https://tikwm.com/api/user/story?unique_id={username}', timeout=6.0)
+                if st_res.status_code == 200:
+                    st_data = st_res.json()
+                    if st_data.get('code') == 0 and st_data.get('data', {}).get('videos'):
+                        for s in st_data['data']['videos']:
+                            s_id = s.get('video_id')
+                            if not s_id:
+                                continue
+                            s_url = f"https://www.tiktok.com/@{username}/video/{s_id}"
+                            s_dur = s.get('duration') or 15
+                            s_dur_str = f"{int(s_dur // 60)}:{int(s_dur % 60):02d}" if s_dur else "0:15"
+                            s_cover = s.get('cover') or s.get('origin_cover') or s.get('ai_dynamic_cover') or ""
+                            if not avatar:
+                                avatar = s.get('author', {}).get('avatar') or avatar
+                            if not nickname or nickname == username:
+                                nickname = s.get('author', {}).get('nickname') or nickname
+                            stories.append({
+                                "id": s_id,
+                                "url": s_url,
+                                "title": s.get('title') or f"Historia de @{username}",
+                                "thumbnail": s_cover,
+                                "duration": s_dur_str,
+                                "views": format_count_helper(s.get('play_count', 0)),
+                                "likes": format_count_helper(s.get('digg_count', 0)),
+                                "created_at": s.get('create_time', 0),
+                                "is_story": True,
+                                "download_url": s.get('play') or ""
+                            })
+        except Exception as e:
+            print(f"Error fetching stories for {username}: {e}")
             
     res = {
         "success": True,
@@ -434,9 +447,11 @@ async def extract_profile_endpoint(req: ProfileRequest):
         "nickname": nickname,
         "avatar": avatar,
         "video_count": len(videos),
-        "has_active_story": len(stories) > 0,
-        "stories": stories,
-        "videos": videos
+        "has_active_story": len(stories) > 0 if start_idx == 1 else False,
+        "stories": stories if start_idx == 1 else [],
+        "videos": videos,
+        "has_more": len(videos) >= count,
+        "next_start": start_idx + len(videos)
     }
     
     profile_cache[cache_key] = res

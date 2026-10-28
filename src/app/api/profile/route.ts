@@ -4,7 +4,7 @@ export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
-    const { url } = await request.json();
+    const { url, start, count } = await request.json();
     if (!url) {
       return NextResponse.json({ success: false, error: 'Por favor, ingresa un usuario o enlace de TikTok.' }, { status: 400 });
     }
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
       const resp = await fetch(backendUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: username }),
+        body: JSON.stringify({ url: username, start: start || 1, count: count || 35 }),
         cache: 'no-store'
       });
 

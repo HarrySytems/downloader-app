@@ -13,8 +13,12 @@ import {
   Sparkles,
   ChevronLeft,
   ChevronRight,
+  TrendingUp,
+  Clock,
+  History,
+  RotateCcw,
   CheckCircle2,
-  Share2
+  Loader2
 } from 'lucide-react';
 
 export interface ProfileStoryItem {
@@ -38,6 +42,9 @@ export interface ProfileVideoItem {
   duration: string;
   views: string;
   likes: string;
+  raw_views?: number;
+  raw_likes?: number;
+  timestamp?: number;
   is_story?: boolean;
 }
 
@@ -52,6 +59,8 @@ export interface ProfileData {
   stories?: ProfileStoryItem[];
   message?: string;
   videos: ProfileVideoItem[];
+  has_more?: boolean;
+  next_start?: number;
 }
 
 interface ProfileCardProps {
@@ -64,9 +73,27 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'videos' | 'stories'>('videos');
   
-  // Paginación progresiva para soportar hasta 100+ videos o historias sin lag
-  const [visibleVideoCount, setVisibleVideoCount] = useState<number>(35);
+  // Estado de videos dinámicos con paginación progresiva del servidor
+  const [videos, setVideos] = useState<ProfileVideoItem[]>(data.videos || []);
+  const [nextStart, setNextStart] = useState<number>(data.next_start || ((data.videos?.length || 0) + 1));
+  const [hasMore, setHasMore] = useState<boolean>(data.has_more ?? ((data.videos?.length || 0) >= 35));
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Filtro de ordenamiento: Recientes | Popular (Más Vistos) | Más Antiguos
+  const [sortFilter, setSortFilter] = useState<'recent' | 'popular' | 'oldest'>('recent');
+
+  // Paginación de historias si hay muchas
   const [visibleStoryCount, setVisibleStoryCount] = useState<number>(35);
+
+  // Sincronizar estado cuando cambie el perfil seleccionado
+  useEffect(() => {
+    setVideos(data.videos || []);
+    setNextStart(data.next_start || ((data.videos?.length || 0) + 1));
+    setHasMore(data.has_more ?? ((data.videos?.length || 0) >= 35));
+    setSortFilter('recent');
+    setLoadError(null);
+  }, [data]);
 
   // Referencia y estados para el carrusel horizontal en escritorio
   const storyRowRef = useRef<HTMLDivElement>(null);
@@ -100,6 +127,69 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
     onSelectVideo(video.url);
   };
 
+  // Cargar siguiente lote de 35 videos del servidor sin salir de la página
+  const handleLoadMoreVideos = async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    setLoadError(null);
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: data.username,
+          start: nextStart,
+          count: 35
+        })
+      });
+
+      const resData = await res.json();
+      if (res.ok && resData.success && Array.isArray(resData.videos)) {
+        const newVids: ProfileVideoItem[] = resData.videos;
+        if (newVids.length === 0) {
+          setHasMore(false);
+        } else {
+          setVideos(prev => {
+            const existingIds = new Set(prev.map(v => v.id));
+            const filtered = newVids.filter(v => !existingIds.has(v.id));
+            return [...prev, ...filtered];
+          });
+          setNextStart(resData.next_start || (nextStart + newVids.length));
+          setHasMore(resData.has_more ?? (newVids.length >= 35));
+        }
+      } else {
+        setLoadError(resData.error || 'No se pudieron cargar más videos.');
+      }
+    } catch {
+      setLoadError('Error al conectar con el servidor.');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  // Ordenamiento de videos cargados
+  const sortedVideos = React.useMemo(() => {
+    const list = [...videos];
+    if (sortFilter === 'popular') {
+      return list.sort((a, b) => {
+        const getViews = (item: ProfileVideoItem) => {
+          if (typeof item.raw_views === 'number' && item.raw_views > 0) return item.raw_views;
+          const s = (item.views || '').toUpperCase().trim();
+          if (s.endsWith('M')) return parseFloat(s) * 1_000_000;
+          if (s.endsWith('K')) return parseFloat(s) * 1_000;
+          return parseFloat(s) || 0;
+        };
+        return getViews(b) - getViews(a);
+      });
+    }
+    if (sortFilter === 'oldest') {
+      // Invierte para mostrar los más antiguos cargados primero
+      return list.reverse();
+    }
+    // 'recent' orden original (más recientes primero)
+    return list;
+  }, [videos, sortFilter]);
+
   const hasStories = Boolean(data.stories && data.stories.length > 0);
   const activeStories = data.stories || [];
 
@@ -114,8 +204,9 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
     return `Hace ${Math.floor(diff / 86400)}d`;
   };
 
-  // Calcular suma total de 'Me gusta' de los videos cargados
-  const totalLikesEstimated = data.videos.reduce((acc, v) => {
+  // Calcular suma total estimada de 'Me gusta'
+  const totalLikesEstimated = videos.reduce((acc, v) => {
+    if (typeof v.raw_likes === 'number' && v.raw_likes > 0) return acc + v.raw_likes;
     const raw = v.likes || '0';
     if (raw.includes('M')) return acc + parseFloat(raw) * 1_000_000;
     if (raw.includes('K')) return acc + parseFloat(raw) * 1_000;
@@ -128,7 +219,6 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
     return n.toString();
   };
 
-  const paginatedVideos = data.videos.slice(0, visibleVideoCount);
   const paginatedStories = activeStories.slice(0, visibleStoryCount);
 
   return (
@@ -219,7 +309,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
             <div className="flex items-center justify-center sm:justify-start gap-6 sm:gap-8 text-sm mb-3">
               <div>
                 <span className="font-extrabold text-slate-900 dark:text-white text-base block">
-                  {data.video_count || data.videos.length}
+                  {hasMore ? `${videos.length}+` : videos.length}
                 </span>
                 <span className="text-slate-500 dark:text-slate-400 text-xs">Publicaciones</span>
               </div>
@@ -248,7 +338,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
               {data.is_private ? (
                 'Esta cuenta es privada en TikTok.'
               ) : (
-                'Perfil público verificado de TikTok. Descarga sus videos e historias en Full HD sin marca de agua.'
+                'Perfil público verificado de TikTok. Explora y descarga todos sus videos e historias sin marca de agua y de forma 100% anónima.'
               )}
             </p>
           </div>
@@ -261,8 +351,8 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
             onClick={() => {
               if (hasStories) {
                 handleVideoClick(activeStories[0]);
-              } else if (data.videos.length > 0) {
-                handleVideoClick(data.videos[0]);
+              } else if (videos.length > 0) {
+                handleVideoClick(videos[0]);
               }
             }}
             className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold text-sm text-white bg-sky-500 hover:bg-sky-400 shadow-lg shadow-sky-500/30 transition-all duration-200 active:scale-95"
@@ -370,8 +460,10 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
             </div>
           )}
 
-          {/* PESTAÑAS DE CONTENIDO */}
-          <div className="mt-7 mb-6 flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+          {/* PESTAÑAS Y CONTROLES DE FILTRO/ORDEN */}
+          <div className="mt-7 mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-3">
+            
+            {/* Pestañas Principales: Videos | Historias */}
             <div className="flex items-center gap-6">
               <button
                 type="button"
@@ -385,7 +477,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                 <Play className="w-4 h-4 fill-current" />
                 <span>Videos</span>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                  {data.videos.length}
+                  {videos.length}
                 </span>
                 {activeTab === 'videos' && (
                   <span className="absolute -bottom-3 left-0 right-0 h-0.5 bg-sky-500 dark:bg-sky-400 rounded-full" />
@@ -414,21 +506,64 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
               )}
             </div>
 
-            <span className="text-xs text-slate-400 hidden sm:inline">
-              Formato H.264 compatible con Windows, Mac y Celular
-            </span>
+            {/* BOTONES DE ORDENAMIENTO (ESTILO TIKTOK) */}
+            {activeTab === 'videos' && videos.length > 0 && (
+              <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900/80 p-1 rounded-xl border border-slate-200 dark:border-slate-800 text-xs self-start md:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setSortFilter('recent')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all ${
+                    sortFilter === 'recent'
+                      ? 'bg-sky-500 text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Videos más recientes primero"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>Recientes</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSortFilter('popular')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all ${
+                    sortFilter === 'popular'
+                      ? 'bg-sky-500 text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Ordenar por mayor cantidad de vistas"
+                >
+                  <TrendingUp className="w-3.5 h-3.5" />
+                  <span>Más Vistos</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSortFilter('oldest')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all ${
+                    sortFilter === 'oldest'
+                      ? 'bg-sky-500 text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Ver los videos más antiguos cargados"
+                >
+                  <History className="w-3.5 h-3.5" />
+                  <span>Más Antiguos</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* CUADRÍCULA DE VIDEOS - EXACTAMENTE COMO EN EL DISEÑO */}
           {activeTab === 'videos' ? (
-            data.videos.length === 0 ? (
+            videos.length === 0 ? (
               <div className="text-center py-16 text-slate-400 text-sm">
-                Este usuario no tiene publicaciones públicas recientes.
+                Este usuario no tiene publicaciones públicas disponibles.
               </div>
             ) : (
               <div className="space-y-6">
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 sm:gap-4.5">
-                  {paginatedVideos.map((video) => (
+                  {sortedVideos.map((video) => (
                     <div
                       key={video.id}
                       onClick={() => handleVideoClick(video)}
@@ -485,18 +620,52 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                   ))}
                 </div>
 
-                {/* Botón Cargar Más */}
-                {data.videos.length > visibleVideoCount && (
-                  <div className="pt-4 flex items-center justify-center">
+                {/* ERROR AL CARGAR MÁS */}
+                {loadError && (
+                  <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs text-center flex items-center justify-center gap-2">
+                    <span>{loadError}</span>
                     <button
                       type="button"
-                      onClick={() => setVisibleVideoCount((prev) => prev + 35)}
-                      className="px-6 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition-colors border border-slate-300 dark:border-slate-700"
+                      onClick={handleLoadMoreVideos}
+                      className="underline font-bold hover:text-red-300"
                     >
-                      Cargar más videos ({data.videos.length - visibleVideoCount} restantes)
+                      Reintentar
                     </button>
                   </div>
                 )}
+
+                {/* BOTÓN CARGAR MÁS PROGRESIVO O AVISO DE FIN DE PERFIL */}
+                <div className="pt-4 flex flex-col items-center justify-center gap-2">
+                  {hasMore ? (
+                    <button
+                      type="button"
+                      onClick={handleLoadMoreVideos}
+                      disabled={loadingMore}
+                      className="flex items-center gap-2 px-7 py-3 rounded-xl bg-sky-500/10 hover:bg-sky-500 text-sky-400 hover:text-white font-bold text-sm transition-all border border-sky-500/30 hover:border-sky-400 shadow-md active:scale-95 disabled:opacity-50 disabled:pointer-events-none"
+                    >
+                      {loadingMore ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Obteniendo los siguientes 35 videos...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-4 h-4" />
+                          <span>Cargar más videos (+35)</span>
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 text-xs font-semibold text-center">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Has llegado al primer video publicado por @{data.username} ({videos.length} videos en total)</span>
+                    </div>
+                  )}
+
+                  <span className="text-[11px] text-slate-400">
+                    {videos.length} videos cargados • Carga continua sin alertar al creador
+                  </span>
+                </div>
               </div>
             )
           ) : (
