@@ -320,6 +320,8 @@ async def extract_profile_endpoint(req: ProfileRequest):
                 "message": "Esta cuenta es privada. Solo los seguidores aprobados pueden ver su contenido.",
                 "videos": []
             }
+        if "secondary user id" in err or "not found" in err or "404" in err:
+            raise HTTPException(status_code=400, detail=f"El perfil @{username} no existe, es privado o no tiene publicaciones públicas.")
         raise HTTPException(status_code=400, detail=f"No se pudo cargar el perfil: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
