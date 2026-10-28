@@ -373,6 +373,40 @@ async def extract_profile_endpoint(req: ProfileRequest):
         except Exception:
             pass
             
+    # Extraer historias activas (24h) del usuario
+    stories = []
+    try:
+        async with httpx.AsyncClient() as client:
+            st_res = await client.get(f'https://tikwm.com/api/user/story?unique_id={username}', timeout=6.0)
+            if st_res.status_code == 200:
+                st_data = st_res.json()
+                if st_data.get('code') == 0 and st_data.get('data', {}).get('videos'):
+                    for s in st_data['data']['videos']:
+                        s_id = s.get('video_id')
+                        if not s_id:
+                            continue
+                        s_url = f"https://www.tiktok.com/@{username}/video/{s_id}"
+                        s_dur = s.get('duration') or 15
+                        s_dur_str = f"{int(s_dur // 60)}:{int(s_dur % 60):02d}" if s_dur else "0:15"
+                        s_cover = s.get('cover') or s.get('origin_cover') or s.get('ai_dynamic_cover') or ""
+                        if not avatar:
+                            avatar = s.get('author', {}).get('avatar') or avatar
+                        if not nickname or nickname == username:
+                            nickname = s.get('author', {}).get('nickname') or nickname
+                        stories.append({
+                            "id": s_id,
+                            "url": s_url,
+                            "title": s.get('title') or f"Historia de @{username}",
+                            "thumbnail": s_cover,
+                            "duration": s_dur_str,
+                            "views": format_count_helper(s.get('play_count', 0)),
+                            "likes": format_count_helper(s.get('digg_count', 0)),
+                            "created_at": s.get('create_time', 0),
+                            "is_story": True
+                        })
+    except Exception as e:
+        print(f"Error fetching stories for {username}: {e}")
+            
     res = {
         "success": True,
         "is_private": False,
@@ -380,6 +414,8 @@ async def extract_profile_endpoint(req: ProfileRequest):
         "nickname": nickname,
         "avatar": avatar,
         "video_count": len(videos),
+        "has_active_story": len(stories) > 0,
+        "stories": stories,
         "videos": videos
     }
     
