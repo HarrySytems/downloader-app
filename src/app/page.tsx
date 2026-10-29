@@ -491,43 +491,9 @@ export default function Home() {
               Descarga Cualquier Video o Perfil Completo
             </h2>
 
-            <p className="text-sm sm:text-base text-slate-400 mb-8 max-w-md leading-relaxed">
+            <p className="text-sm sm:text-base text-slate-400 max-w-md leading-relaxed">
               Ingresa el enlace de un video, historia o busca a cualquier creador de TikTok con su <strong className="text-sky-400">@usuario</strong> para ver su perfil y descargar sus videos en HD.
             </p>
-
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <span className="text-xs text-slate-500 mr-1 font-semibold">Ejemplos para probar:</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setUrl('@zullyy_cs');
-                  processUrl('@zullyy_cs');
-                }}
-                className="px-3 py-1.5 rounded-full bg-slate-800/80 hover:bg-sky-500/20 hover:text-sky-400 text-slate-300 text-xs font-semibold border border-slate-700 transition-colors"
-              >
-                @zullyy_cs
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setUrl('@aydnsarpy');
-                  processUrl('@aydnsarpy');
-                }}
-                className="px-3 py-1.5 rounded-full bg-slate-800/80 hover:bg-sky-500/20 hover:text-sky-400 text-slate-300 text-xs font-semibold border border-slate-700 transition-colors"
-              >
-                @aydnsarpy
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setUrl('@zachking');
-                  processUrl('@zachking');
-                }}
-                className="px-3 py-1.5 rounded-full bg-slate-800/80 hover:bg-sky-500/20 hover:text-sky-400 text-slate-300 text-xs font-semibold border border-slate-700 transition-colors"
-              >
-                @zachking
-              </button>
-            </div>
           </div>
         )}
 

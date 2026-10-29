@@ -96,16 +96,36 @@ export async function POST(request: Request) {
           const tikwmData = await tikwmResponse.json();
           if (tikwmData.code === 0 && tikwmData.data) {
             const data = tikwmData.data;
-            // Si el post contiene un listado de imágenes, es un slideshow. Devolvemos las fotos directamente.
-            if (data.images && data.images.length > 0) {
+            const images = (data.images || []).map(resolveUrl);
+            const liveImages = (data.live_images || []).map(resolveUrl);
+
+            // CASO 1: Si contiene LIVE IMAGES (Fotos animadas de TikTok / Live Photos / clips cortos de 3s)
+            if (liveImages.length > 0) {
+              return NextResponse.json({
+                success: true,
+                platform,
+                title: data.title || 'Foto Animada de TikTok',
+                thumbnail: data.cover || images[0] || '',
+                videoUrl: liveImages[0], // ¡El video animado MP4 de 3 segundos directo!
+                audioUrl: resolveUrl(data.music),
+                images: images,
+                liveImages: liveImages,
+                isLivePhoto: true
+              });
+            }
+
+            // CASO 2: Si el post contiene un listado de imágenes estáticas (slideshow tradicional)
+            if (images.length > 0) {
               return NextResponse.json({
                 success: true,
                 platform,
                 title: data.title || 'Galería de fotos de TikTok',
-                thumbnail: data.cover || '',
+                thumbnail: data.cover || images[0] || '',
                 videoUrl: '',
                 audioUrl: resolveUrl(data.music),
-                images: data.images.map(resolveUrl)
+                images: images,
+                liveImages: [],
+                isLivePhoto: false
               });
             }
           }
