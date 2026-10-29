@@ -97,16 +97,18 @@ export async function POST(request: Request) {
           if (tikwmData.code === 0 && tikwmData.data) {
             const data = tikwmData.data;
             const images = (data.images || []).map(resolveUrl);
-            const liveImages = (data.live_images || []).map(resolveUrl);
+            const liveImages = (data.live_images || []).map((p: any) => resolveUrl(p));
+            const hasAnyLive = liveImages.some((p: string) => Boolean(p));
+            const primaryVideoUrl = liveImages.find((p: string) => Boolean(p)) || '';
 
             // CASO 1: Si contiene LIVE IMAGES (Fotos animadas de TikTok / Live Photos / clips cortos de 3s)
-            if (liveImages.length > 0) {
+            if (hasAnyLive) {
               return NextResponse.json({
                 success: true,
                 platform,
-                title: data.title || 'Foto Animada de TikTok',
+                title: data.title || 'Foto Animada / Video de TikTok',
                 thumbnail: data.cover || images[0] || '',
-                videoUrl: liveImages[0], // ¡El video animado MP4 de 3 segundos directo!
+                videoUrl: primaryVideoUrl, // ¡El video animado MP4 de 3 segundos!
                 audioUrl: resolveUrl(data.music),
                 images: images,
                 liveImages: liveImages,
