@@ -45,7 +45,7 @@ async def startup_event():
 
 class ExtractRequest(BaseModel):
     url: str
-    format_preference: str = "h264"
+    format_preference: str = "best"
 
 async def clean_tiktok_url(url: str) -> str:
     url = url.strip()
@@ -195,11 +195,9 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
                                 "videoUrl": download_link,
                                 "needs_processing": False
                             }
-                print(f"Hugging Face space responded with status {hf_resp.status_code}: {hf_resp.text}")
-                raise HTTPException(status_code=400, detail="El motor de descargas está ocupado. Intenta de nuevo en unos segundos.")
+                print(f"Hugging Face space responded with status {hf_resp.status_code}: {hf_resp.text}, falling back to direct EC2 extraction...")
         except Exception as e:
-            print(f"Hugging Face Bridge exception: {e}")
-            raise HTTPException(status_code=500, detail="Error al conectar con el servidor de extracción. Intenta de nuevo.")
+            print(f"Hugging Face Bridge exception: {e}, falling back to direct EC2 extraction...")
             
     # Para Twitter y otras plataformas, extracción directa desde AWS sin proxies
     fmt_str = 'bestvideo+bestaudio/best' if req.format_preference == 'best' else 'bestvideo[vcodec*=h264]+bestaudio/best[vcodec*=h264]/best'
@@ -254,6 +252,40 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
         
     except yt_dlp.utils.DownloadError as e:
         error_msg = str(e)
+        if "tiktok.com" in url or "douyin.com" in url:
+            try:
+                print(f"Direct yt-dlp failed ({error_msg}), attempting TikWM HD fallback...")
+                async with httpx.AsyncClient(timeout=10.0) as tw_client:
+                    tw_resp = await tw_client.post("https://tikwm.com/api/", data={"url": url, "hd": "1"})
+                    if tw_resp.status_code == 200:
+                        tw_data = tw_resp.json()
+                        if tw_data.get("code") == 0 and tw_data.get("data"):
+                            d = tw_data["data"]
+                            v_url = d.get("hdplay") or d.get("play")
+                            if v_url:
+                                if not v_url.startswith("http"):
+                                    v_url = "https://tikwm.com" + v_url
+                                stream_id = str(uuid.uuid4())
+                                stream_cache[stream_id] = {
+                                    "url": v_url,
+                                    "headers": {
+                                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                                    },
+                                    "filename": f"{d.get('title', 'Video_TikTok')}.mp4"
+                                }
+                                loop = asyncio.get_running_loop()
+                                loop.call_later(1800, lambda: stream_cache.pop(stream_id, None))
+                                base_url = str(request.base_url).rstrip('/')
+                                return {
+                                    "success": True,
+                                    "platform": "tiktok",
+                                    "title": d.get("title", "Video de TikTok"),
+                                    "thumbnail": d.get("cover", ""),
+                                    "videoUrl": f"{base_url}/download-stream/{stream_id}?codec=h264",
+                                    "needs_processing": False
+                                }
+            except Exception as tw_err:
+                print(f"TikWM emergency fallback error: {tw_err}")
         raise HTTPException(status_code=400, detail=f"No se pudo extraer información del video. Error: {error_msg}")
     except HTTPException as he:
         raise he

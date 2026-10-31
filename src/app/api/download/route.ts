@@ -144,7 +144,8 @@ export async function POST(request: Request) {
         const userAgent = request.headers.get('user-agent') || '';
         const isMobile = /mobile|android|iphone|ipad/i.test(userAgent);
         // Forzar 'h264' para compatibilidad total con Windows (Películas y TV / Media Player), Mac, iOS y Android
-        const formatPreference = 'h264';
+        // Descargar siempre en máxima resolución Full HD 1080p sin degradar a 540p
+        const formatPreference = 'best';
         
         const response = await fetch(hfApiUrl, {
           method: 'POST',
