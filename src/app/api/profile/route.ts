@@ -12,18 +12,31 @@ export async function POST(request: Request) {
     // Extraer el username limpio (ej: @aydnsarpy o https://www.tiktok.com/@aydnsarpy)
     let username = url.trim();
     if (username.includes('tiktok.com')) {
+      // Si el enlace apunta a un video, foto o historia específico, alertar
+      if (
+        username.includes('/video/') || 
+        username.includes('/photo/') || 
+        username.includes('/story/') || 
+        username.includes('/stories/')
+      ) {
+        return NextResponse.json({
+          success: false,
+          isMedia: true,
+          error: 'Este enlace corresponde a una publicación individual o historia, no a un perfil completo. Pégalo directamente para descargar el video o fotos.'
+        }, { status: 400 });
+      }
       const match = username.match(/@([a-zA-Z0-9_.-]+)/);
       if (match) {
         username = match[1];
       }
     }
-    username = username.replace(/^@/, '').split('?')[0].split('/')[0];
+    username = username.replace(/^@/, '').split('?')[0].split('/')[0].trim();
 
     if (!username) {
       return NextResponse.json({ success: false, error: 'Nombre de usuario inválido.' }, { status: 400 });
     }
 
-    // 1. Consultar el motor backend en AWS EC2 (que corre extract_flat sin baneos)
+    // Consultar el motor backend en AWS EC2 (que corre sin bloqueos de cookies)
     const backendUrl = 'http://3.19.208.2:8000/api/profile';
     try {
       const resp = await fetch(backendUrl, {
@@ -39,7 +52,7 @@ export async function POST(request: Request) {
       } else {
         const errData = await resp.json().catch(() => null);
         let errorMsg = errData?.detail || 'No se pudo cargar el perfil en este momento.';
-        if (errorMsg.toLowerCase().includes('unable to extract secondary user id') || errorMsg.toLowerCase().includes('not found')) {
+        if (errorMsg.toLowerCase().includes('unable to extract secondary user id') || errorMsg.toLowerCase().includes('not found') || errorMsg.toLowerCase().includes('no existe')) {
           errorMsg = `El usuario @${username} no existe, es privado o no tiene videos públicos disponibles.`;
         }
         return NextResponse.json({

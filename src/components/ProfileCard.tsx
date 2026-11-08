@@ -54,6 +54,12 @@ export interface ProfileData {
   username: string;
   nickname: string;
   avatar?: string;
+  signature?: string;
+  verified?: boolean;
+  followers?: string;
+  following?: string;
+  total_likes?: string;
+  total_videos?: number | string;
   video_count?: number;
   has_active_story?: boolean;
   stories?: ProfileStoryItem[];
@@ -299,6 +305,9 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
           <div className="flex-1 text-center sm:text-left">
             <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight mb-1 flex items-center justify-center sm:justify-start gap-2">
               <span>{data.nickname || data.username}</span>
+              {data.verified && (
+                <CheckCircle2 className="w-5 h-5 text-sky-400 fill-sky-400/20 shrink-0" />
+              )}
             </h2>
 
             <p className="text-sm font-semibold text-sky-500 dark:text-sky-400 mb-4">
@@ -309,7 +318,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
             <div className="flex items-center justify-center sm:justify-start gap-6 sm:gap-8 text-sm mb-3">
               <div>
                 <span className="font-extrabold text-slate-900 dark:text-white text-base block">
-                  {hasMore ? `${videos.length}+` : videos.length}
+                  {data.total_videos ? data.total_videos : (hasMore ? `${videos.length}+` : videos.length)}
                 </span>
                 <span className="text-slate-500 dark:text-slate-400 text-xs">Publicaciones</span>
               </div>
@@ -318,28 +327,28 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
 
               <div>
                 <span className="font-extrabold text-slate-900 dark:text-white text-base block">
-                  {hasStories ? `${activeStories.length} activa${activeStories.length > 1 ? 's' : ''}` : '0'}
+                  {data.followers || (hasStories ? `${activeStories.length} activa${activeStories.length > 1 ? 's' : ''}` : '0')}
                 </span>
-                <span className="text-slate-500 dark:text-slate-400 text-xs">Historias (24h)</span>
+                <span className="text-slate-500 dark:text-slate-400 text-xs">{data.followers ? 'Seguidores' : 'Historias'}</span>
               </div>
 
               <div className="w-[1px] h-6 bg-slate-200 dark:bg-slate-800 self-center" />
 
               <div>
                 <span className="font-extrabold text-slate-900 dark:text-white text-base block">
-                  {totalLikesEstimated > 0 ? formatBigNumber(totalLikesEstimated) : 'Público'}
+                  {data.total_likes || (totalLikesEstimated > 0 ? formatBigNumber(totalLikesEstimated) : 'Público')}
                 </span>
                 <span className="text-slate-500 dark:text-slate-400 text-xs">Me gusta</span>
               </div>
             </div>
 
             {/* Mensaje de estado / bio */}
-            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 max-w-xl leading-relaxed">
-              {data.is_private ? (
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 max-w-xl leading-relaxed whitespace-pre-line">
+              {data.signature || (data.is_private ? (
                 'Esta cuenta es privada en TikTok.'
               ) : (
-                'Perfil público verificado de TikTok. Explora y descarga todos sus videos e historias sin marca de agua y de forma 100% anónima.'
-              )}
+                'Perfil público de TikTok. Explora y descarga todos sus videos e historias sin marca de agua y de forma 100% anónima.'
+              ))}
             </p>
           </div>
         </div>

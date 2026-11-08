@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Download, Music, Image as ImageIcon, User, ExternalLink, Film, Sparkles, Play } from 'lucide-react';
+import { Download, Music, Image as ImageIcon, User, ExternalLink, Film, Sparkles, Play, Clock, CheckCircle2 } from 'lucide-react';
 
 export interface VideoData {
   platform: string;
@@ -13,6 +13,12 @@ export interface VideoData {
   images?: string[];
   liveImages?: string[];
   isLivePhoto?: boolean;
+  isStory?: boolean;
+  mediaType?: 'video' | 'gallery' | 'live_photo' | 'story';
+  formatLabel?: string;
+  width?: number;
+  height?: number;
+  duration?: number;
 }
 
 interface VideoCardProps {
@@ -36,7 +42,20 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
       .slice(0, 50) + `.${ext}`;
   };
 
-  const getPlatformColors = (platform: string, isLive?: boolean) => {
+  const isLive = Boolean(data.isLivePhoto || (data.liveImages && data.liveImages.length > 0));
+  const isImages = Boolean(data.images && data.images.length > 0);
+  const hasMultipleImages = Boolean(data.images && data.images.length > 1);
+  const isStory = Boolean(data.isStory || data.mediaType === 'story');
+
+  const getPlatformColors = () => {
+    if (isStory) {
+      return {
+        bg: 'bg-white dark:bg-slate-800',
+        border: 'border-purple-300 dark:border-purple-500/40',
+        badge: 'bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-sm shadow-purple-500/20 font-bold',
+        gradient: 'from-purple-500 via-indigo-500 to-pink-600 shadow-purple-200 dark:from-purple-600 dark:to-indigo-700'
+      };
+    }
     if (isLive) {
       return {
         bg: 'bg-white dark:bg-slate-800',
@@ -45,35 +64,23 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
         gradient: 'from-pink-500 via-rose-500 to-purple-600 shadow-pink-200 dark:from-pink-600 dark:to-purple-700'
       };
     }
-    switch (platform) {
-      case 'tiktok':
-        return {
-          bg: 'bg-white dark:bg-slate-800',
-          border: 'border-slate-200 dark:border-slate-700',
-          badge: 'bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600',
-          gradient: 'from-sky-500 to-blue-600 shadow-sky-100 dark:from-sky-600 dark:to-blue-700'
-        };
-      case 'twitter':
-        return {
-          bg: 'bg-white dark:bg-slate-800',
-          border: 'border-slate-200 dark:border-slate-700',
-          badge: 'bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600',
-          gradient: 'from-blue-500 to-blue-600 shadow-blue-100 dark:from-blue-600 dark:to-blue-700'
-        };
-      default:
-        return {
-          bg: 'bg-white dark:bg-slate-800',
-          border: 'border-slate-200 dark:border-slate-700',
-          badge: 'bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600',
-          gradient: 'from-sky-500 to-blue-600 shadow-sky-100 dark:from-sky-600 dark:to-blue-700'
-        };
+    if (isImages) {
+      return {
+        bg: 'bg-white dark:bg-slate-800',
+        border: 'border-amber-300 dark:border-amber-500/40',
+        badge: 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-sm shadow-amber-500/20 font-bold',
+        gradient: 'from-amber-500 to-orange-600 shadow-amber-200 dark:from-amber-600 dark:to-orange-700'
+      };
     }
+    return {
+      bg: 'bg-white dark:bg-slate-800',
+      border: 'border-slate-200 dark:border-slate-700',
+      badge: 'bg-sky-500 text-white font-bold',
+      gradient: 'from-sky-500 to-blue-600 shadow-sky-100 dark:from-sky-600 dark:to-blue-700'
+    };
   };
 
-  const isLive = Boolean(data.isLivePhoto || (data.liveImages && data.liveImages.length > 0));
-  const colors = getPlatformColors(data.platform, isLive);
-  const isImages = Boolean(data.images && data.images.length > 0);
-  const hasMultipleImages = Boolean(data.images && data.images.length > 1);
+  const colors = getPlatformColors();
 
   // Fallback thumbnail
   const thumbnailSrc = data.thumbnail || (data.images && data.images[0]) || '';
@@ -110,7 +117,7 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
       <div className="flex flex-col md:flex-row gap-6">
         
         {/* Media Preview / Thumbnail */}
-        <div className="w-full md:w-52 h-56 md:h-44 shrink-0 relative rounded-xl overflow-hidden bg-slate-900 border border-slate-700/60 flex items-center justify-center shadow-inner">
+        <div className="w-full md:w-56 h-64 md:h-52 shrink-0 relative rounded-xl overflow-hidden bg-slate-900 border border-slate-700/60 flex items-center justify-center shadow-inner">
           {thumbnailSrc ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img 
@@ -129,27 +136,35 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
             </div>
           )}
           
-          {/* Badge Overlay */}
-          <span className={`absolute top-2 left-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${colors.badge} flex items-center gap-1`}>
-            {isLive ? (
+          {/* Badge Overlay en Thumbnail */}
+          <span className={`absolute top-2.5 left-2.5 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${colors.badge} flex items-center gap-1.5 shadow-md`}>
+            {isStory ? (
               <>
-                <Sparkles className="w-3 h-3" />
+                <Clock className="w-3.5 h-3.5" />
+                <span>Historia (24h)</span>
+              </>
+            ) : isLive ? (
+              <>
+                <Sparkles className="w-3.5 h-3.5" />
                 <span>Foto Animada (3s)</span>
               </>
             ) : isImages ? (
               <>
-                <ImageIcon className="w-3 h-3" />
+                <ImageIcon className="w-3.5 h-3.5" />
                 <span>Galería ({data.images?.length})</span>
               </>
             ) : (
-              <span>{data.platform}</span>
+              <>
+                <Film className="w-3.5 h-3.5" />
+                <span>{data.formatLabel || 'Video Full HD'}</span>
+              </>
             )}
           </span>
 
-          {/* Icono de play si es video animado */}
+          {/* Icono de play si contiene video */}
           {(data.videoUrl || isLive) && (
             <div className="absolute inset-0 bg-black/20 flex items-center justify-center pointer-events-none">
-              <div className="w-10 h-10 rounded-full bg-black/60 backdrop-blur-sm border border-white/20 flex items-center justify-center text-white">
+              <div className="w-11 h-11 rounded-full bg-black/60 backdrop-blur-sm border border-white/20 flex items-center justify-center text-white shadow-lg">
                 <Play className="w-5 h-5 fill-current ml-0.5" />
               </div>
             </div>
@@ -159,14 +174,55 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
         {/* Detalles del Contenido */}
         <div className="flex-1 flex flex-col justify-between py-1">
           <div>
+            
+            {/* Formato Original Detectado */}
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              <span className="text-[11px] font-bold text-slate-400 dark:text-slate-400 uppercase tracking-wider">
+                Formato Original:
+              </span>
+              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-extrabold ${colors.badge}`}>
+                {isStory ? (
+                  <>
+                    <Clock className="w-3 h-3" />
+                    <span>Historia de TikTok (24h)</span>
+                  </>
+                ) : isLive ? (
+                  <>
+                    <Sparkles className="w-3 h-3" />
+                    <span>Foto Animada (Live Photo - 3s)</span>
+                  </>
+                ) : isImages ? (
+                  <>
+                    <ImageIcon className="w-3 h-3" />
+                    <span>Galería de Fotos ({data.images?.length} fotos)</span>
+                  </>
+                ) : (
+                  <>
+                    <Film className="w-3 h-3" />
+                    <span>{data.formatLabel || 'Video Full HD (1080p)'}</span>
+                  </>
+                )}
+              </span>
+            </div>
+
             <h3 className="text-lg md:text-xl font-black text-slate-900 dark:text-white line-clamp-2 mb-2 tracking-tight">
-              {data.title || (isLive ? 'Foto animada de TikTok' : 'Video descargado')}
+              {data.title || (isStory ? 'Historia de TikTok' : (isLive ? 'Foto animada de TikTok' : 'Video descargado'))}
             </h3>
             
             {data.author && (
-              <div className="flex items-center gap-2 text-sky-500 dark:text-sky-400 text-sm mb-4 font-semibold">
+              <div className="flex items-center gap-2 text-sky-500 dark:text-sky-400 text-sm mb-3 font-semibold">
                 <User className="w-4 h-4 text-sky-400" />
                 <span>@{data.author}</span>
+              </div>
+            )}
+
+            {/* Banner Informativo según formato */}
+            {isStory && (
+              <div className="mb-4 p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs text-purple-400 flex items-center gap-2 font-medium">
+                <Clock className="w-4 h-4 shrink-0" />
+                <span>
+                  Esta publicación es una <strong>Historia de TikTok (24 horas)</strong>. Se descarga en máxima resolución original antes de que expire.
+                </span>
               </div>
             )}
 
@@ -174,22 +230,31 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
               <div className="mb-4 p-2.5 rounded-xl bg-pink-500/10 border border-pink-500/20 text-xs text-pink-400 flex items-center gap-2 font-medium">
                 <Sparkles className="w-4 h-4 shrink-0" />
                 <span>
-                  Esta publicación es una <strong>Foto Animada (Live Photo)</strong>. Puedes descargar el video animado en movimiento de 3 segundos o la foto estática.
+                  Esta publicación contiene <strong>Fotos Animadas (Live Photos de 3s)</strong>. Puedes descargar el video animado en movimiento o la foto estática en JPG.
+                </span>
+              </div>
+            )}
+
+            {!isLive && isImages && (
+              <div className="mb-4 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400 flex items-center gap-2 font-medium">
+                <ImageIcon className="w-4 h-4 shrink-0" />
+                <span>
+                  Esta publicación es una <strong>Galería de {data.images?.length} fotos</strong>. Puedes descargar cada imagen en alta definición o el video completo con música.
                 </span>
               </div>
             )}
           </div>
 
           {/* Botones de Descarga */}
-          <div className="flex flex-wrap items-center gap-3 w-full">
+          <div className="flex flex-wrap items-center gap-3 w-full mt-2">
             
-            {/* 1. Botón Video (Animado o Normal) */}
+            {/* 1. Botón Video (Animado, Normal o Galería en video) */}
             {data.videoUrl && (
               <button
                 type="button"
                 onClick={() => handleDownload(
                   data.videoUrl!, 
-                  cleanFilename(data.title || (isLive ? 'live_photo_video' : 'video'), 'mp4'), 
+                  cleanFilename(data.title || (isStory ? 'historia' : (isLive ? 'live_video' : (isImages ? 'galeria_video' : 'video'))), 'mp4'), 
                   setDownloadingVideo
                 )}
                 disabled={downloadingVideo}
@@ -203,7 +268,15 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
                 ) : (
                   <>
                     <Download className="w-4 h-4 stroke-[2.5]" />
-                    <span>{isLive ? 'Descargar Video Animado (HD)' : 'Descargar Video (HD)'}</span>
+                    <span>
+                      {isStory 
+                        ? 'Descargar Historia (HD)' 
+                        : (isLive 
+                            ? 'Descargar Video Animado (HD)' 
+                            : (isImages 
+                                ? 'Descargar Video Completo (MP4)' 
+                                : 'Descargar Video (HD)'))}
+                    </span>
                   </>
                 )}
               </button>
@@ -228,7 +301,7 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
                   </>
                 ) : (
                   <>
-                    <ImageIcon className="w-4 h-4 text-sky-400" />
+                    <ImageIcon className="w-4 h-4 text-pink-400" />
                     <span>Descargar Foto (JPG)</span>
                   </>
                 )}
@@ -274,7 +347,7 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
               <span>Fotos de la Galería ({data.images.length})</span>
             </h4>
             <span className="text-xs text-slate-400">
-              {isLive ? 'Toca cada elemento para descargar su foto o su video animado' : 'Descarga las fotos individualmente'}
+              {isLive ? 'Toca cada elemento para descargar su foto o su video animado' : 'Descarga las fotos individualmente en HD'}
             </span>
           </div>
 

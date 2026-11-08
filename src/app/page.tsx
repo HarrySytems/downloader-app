@@ -169,27 +169,52 @@ export default function Home() {
     const clean = input.trim();
     const lower = clean.toLowerCase();
     
-    if (lower.includes('/video/') || lower.includes('/photo/') || lower.includes('/status/')) {
+    // Si tiene rutas de contenido específico, ES UN MEDIO, no un perfil
+    if (
+      lower.includes('/video/') || 
+      lower.includes('/photo/') || 
+      lower.includes('/story/') || 
+      lower.includes('/stories/') || 
+      lower.includes('/status/') ||
+      lower.includes('/v/') ||
+      lower.includes('/t/')
+    ) {
       return false;
     }
-    if (lower.startsWith('@')) return true;
-    if (lower.includes('tiktok.com/@') && !lower.includes('/video/') && !lower.includes('/photo/')) return true;
     
-    if (!lower.startsWith('http://') && !lower.startsWith('https://') && /^[a-zA-Z0-9_.-]+$/.test(clean) && !lower.includes('.com') && !lower.includes('.lat') && !lower.includes('/')) {
+    // Usuario con arroba ej: @aydnsarpy
+    if (/^@[a-zA-Z0-9_.-]+$/.test(clean)) return true;
+    
+    // URL de perfil de TikTok: https://www.tiktok.com/@username (con opcional slash o query params)
+    const tiktokProfileRegex = /^(https?:\/\/)?(www\.|m\.)?tiktok\.com\/@([a-zA-Z0-9_.-]+)\/?(\?[^/]*)?$/i;
+    if (tiktokProfileRegex.test(clean)) return true;
+    
+    // Nombre de usuario plano sin http ni extensiones web
+    if (
+      !lower.startsWith('http://') && 
+      !lower.startsWith('https://') && 
+      !lower.includes('.com') && 
+      !lower.includes('.lat') && 
+      !lower.includes('.org') && 
+      !lower.includes('/') && 
+      /^[a-zA-Z0-9_.-]{2,30}$/.test(clean)
+    ) {
       return true;
     }
 
     return false;
   };
 
-  const processUrl = async (targetUrl: string) => {
+  const processUrl = async (targetUrl: string, keepProfile = false) => {
     if (!targetUrl.trim()) return;
 
     setLoading(true);
     setError(null);
     
-    // CORRECCIÓN CRUCIAL: Limpiar datos anteriores de inmediato para que ningún perfil quede atascado
-    setProfileData(null);
+    // Si no se pide mantener el perfil en memoria, limpiar
+    if (!keepProfile) {
+      setProfileData(null);
+    }
     setResultData(null);
 
     const isProfile = isProfileQuery(targetUrl);
@@ -206,7 +231,7 @@ export default function Home() {
       if (progressText) {
         progressText.innerText = isProfile 
           ? `Cargando perfil y publicaciones... ${Math.round(fakeProgress)}%` 
-          : `Analizando enlace... ${Math.round(fakeProgress)}%`;
+          : `Identificando formato original (Video/Historia/Foto)... ${Math.round(fakeProgress)}%`;
       }
     }, 350);
 
@@ -245,6 +270,10 @@ export default function Home() {
           setResultData(data);
           setResultOriginalUrl(targetUrl);
           setError(null);
+        } else if (data.isProfile && data.username) {
+          // El enlace redirigió a un perfil de TikTok
+          clearInterval(progressInterval);
+          return processUrl(data.username);
         } else {
           setResultData(null);
           setError(data.error || 'Ocurrió un error inesperado al procesar el enlace.');
@@ -252,7 +281,7 @@ export default function Home() {
       }
     } catch (err) {
       console.error('Submit error:', err);
-      setProfileData(null);
+      if (!keepProfile) setProfileData(null);
       setResultData(null);
       setError('Error de conexión con el servidor. Reintenta en unos segundos.');
     } finally {
@@ -456,7 +485,7 @@ export default function Home() {
             <ProfileCard
               data={profileData}
               onSelectVideo={(videoUrl) => {
-                processUrl(videoUrl);
+                processUrl(videoUrl, true);
               }}
               onBack={() => setProfileData(null)}
             />

@@ -10,6 +10,7 @@ import urllib.parse
 import httpx
 import http.cookiejar
 import re
+import json
 
 app = FastAPI(title="ByteDownloader API Engine")
 
@@ -27,7 +28,6 @@ stream_cache = {}
 
 @app.on_event("startup")
 async def startup_event():
-    # Unir todas las cookies en un solo archivo master cuando el servidor inicia
     cookie_files = ["www.tiktok.com_cookies.txt"]
     master_cookie_content = "# Netscape HTTP Cookie File\n"
     
@@ -50,108 +50,147 @@ class ExtractRequest(BaseModel):
 async def clean_tiktok_url(url: str) -> str:
     url = url.strip()
     if "tiktok.com" in url:
-        if "/photo/" in url:
-            url = url.replace("/photo/", "/video/")
-        if "vm.tiktok.com" in url or "vt.tiktok.com" in url or "v.tiktok.com" in url:
+        # Resolver enlaces acortados (vm.tiktok.com, vt.tiktok.com, /t/)
+        if "vm.tiktok.com" in url or "vt.tiktok.com" in url or "v.tiktok.com" in url or "/t/" in url:
             try:
-                async with httpx.AsyncClient() as client:
-                    resp = await client.get(url, follow_redirects=True, headers={
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                    })
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                }
+                async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=8.0) as client:
+                    resp = await client.get(url)
                     url = str(resp.url)
             except Exception as e:
                 print(f"Error resolving TikTok redirect: {e}")
+        if "/photo/" in url:
+            url = url.replace("/photo/", "/video/")
+        if "/story/" in url:
+            url = url.replace("/story/", "/video/")
+        if "/stories/" in url:
+            url = url.replace("/stories/", "/video/")
         if "?" in url:
             url = url.split("?")[0]
     return url
 
-# Eliminar el video temporal del servidor después de descargarlo
 def delete_file(file_path: str):
     try:
         if os.path.exists(file_path):
             os.remove(file_path)
-            print(f"Deleted temp file: {file_path}")
+            print(f"Archivo temporal eliminado: {file_path}")
     except Exception as e:
-        print(f"Error deleting file {file_path}: {e}")
+        print(f"Error al eliminar archivo temporal {file_path}: {e}")
 
+def format_count_helper(n):
+    if not n:
+        return '0'
+    try:
+        n = int(n)
+    except Exception:
+        return str(n)
+    if n >= 1_000_000:
+        return f'{n / 1_000_000:.1f}M'.replace('.0M', 'M')
+    if n >= 1_000:
+        return f'{n / 1_000:.1f}K'.replace('.0K', 'K')
+    return str(n)
 
-# ----------------- RUTA BASADA EN DISCO -----------------
+async def fetch_user_meta(uname: str):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept-Language": "es-ES,es;q=0.9,en;q=0.8"
+    }
+    url = f"https://www.tiktok.com/@{uname}"
+    try:
+        async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=8.0) as client:
+            resp = await client.get(url)
+            if resp.status_code == 200:
+                ud_match = re.search(r'<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>', resp.text)
+                if ud_match:
+                    data = json.loads(ud_match.group(1))
+                    scope = data.get("__DEFAULT_SCOPE__", {})
+                    user_detail = scope.get("webapp.user-detail", {}).get("userInfo", {})
+                    user = user_detail.get("user", {})
+                    stats = user_detail.get("stats", {})
+                    return {
+                        "nickname": user.get("nickname") or uname,
+                        "avatar": user.get("avatarLarger") or user.get("avatarMedium") or "",
+                        "signature": user.get("signature") or "",
+                        "verified": user.get("verified", False),
+                        "followers": stats.get("followerCount", 0),
+                        "following": stats.get("followingCount", 0),
+                        "likes": stats.get("heartCount", 0),
+                        "total_videos": stats.get("videoCount", 0),
+                        "sec_uid": user.get("secUid", ""),
+                        "is_private": user.get("privateAccount", False)
+                    }
+    except Exception as e:
+        print(f"fetch_user_meta error for @{uname}: {e}")
+    return {}
+
+# ----------------- RUTA CLÁSICA (DESCARGA LOCAL) -----------------
 
 @app.post("/api/extract")
-async def extract_info(req: ExtractRequest, background_tasks: BackgroundTasks, request: Request):
+async def extract_info(req: ExtractRequest, background_tasks: BackgroundTasks):
     url = await clean_tiktok_url(req.url)
-    
-    file_id = str(uuid.uuid4())
-    output_filename = f"video_{file_id}.mp4"
     
     fmt_str = 'bestvideo+bestaudio/best' if req.format_preference == 'best' else 'bestvideo[vcodec*=h264]+bestaudio/best[vcodec*=h264]/best'
     
+    unique_id = str(uuid.uuid4())
+    temp_dir = "/tmp" if os.name != 'nt' else os.environ.get("TEMP", "C:\\temp")
+    os.makedirs(temp_dir, exist_ok=True)
+    temp_file = os.path.join(temp_dir, f"{unique_id}.%(ext)s")
+    final_output_file = os.path.join(temp_dir, f"{unique_id}.mp4")
+
     ydl_opts = {
         'format': fmt_str,
-        'outtmpl': output_filename,
+        'outtmpl': temp_file,
         'merge_output_format': 'mp4',
+        'quiet': True,
+        'no_warnings': True,
     }
     
     if os.path.exists("master_cookies.txt"):
         ydl_opts['cookiefile'] = "master_cookies.txt"
-    
+
     try:
-        def download():
+        def run_ydl():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 return ydl.extract_info(url, download=True)
-        info = await asyncio.to_thread(download)
-        
-        platform = info.get('extractor', 'unknown').lower()
-        title = info.get('title', 'Video')
-        thumbnail = info.get('thumbnail', '')
-        
-        vcodec = info.get('vcodec', '').lower()
-        codec = "hevc" if ("h265" in vcodec or "hevc" in vcodec or "hvc1" in vcodec) else "h264"
-        
-        base_url = str(request.base_url).rstrip('/')
-        download_link = f"{base_url}/download/{output_filename}?codec={codec}"
-        
-        loop = asyncio.get_running_loop()
-        loop.call_later(1800, delete_file, output_filename)
-        
-        return {
-            "success": True,
-            "platform": platform,
-            "title": title,
-            "thumbnail": thumbnail,
-            "videoUrl": download_link,
-            "needs_processing": False
-        }
-        
+        info = await asyncio.to_thread(run_ydl)
     except yt_dlp.utils.DownloadError as e:
         error_msg = str(e)
-        raise HTTPException(status_code=400, detail=f"No se pudo descargar el video. Asegúrate de que el enlace sea público. Error: {error_msg}")
-    except HTTPException as he:
-        raise he
+        raise HTTPException(status_code=400, detail=f"No se pudo extraer información del video. Error: {error_msg}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno del motor: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
-@app.get("/download/{filename}")
-async def serve_file(filename: str, background_tasks: BackgroundTasks):
-    if not os.path.exists(filename):
-        raise HTTPException(status_code=404, detail="El archivo ya expiró o no existe.")
+    if not os.path.exists(final_output_file):
+        base_path = os.path.join(temp_dir, unique_id)
+        for ext in ['.mp4', '.mkv', '.webm']:
+            if os.path.exists(base_path + ext):
+                final_output_file = base_path + ext
+                break
+        else:
+            raise HTTPException(status_code=500, detail="El archivo de video no pudo ser generado localmente.")
+
+    background_tasks.add_task(delete_file, final_output_file)
+    
     return FileResponse(
-        path=filename, 
+        final_output_file, 
         filename="ByteDownloader_Video.mp4", 
         media_type="video/mp4"
     )
-
 
 # ----------------- RUTA BASADA EN TRANSMISIÓN EN VIVO (BRIDGE & STREAM) -----------------
 
 @app.post("/api/extract-stream")
 async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundTasks, request: Request):
+    raw_original_url = req.url
     url = await clean_tiktok_url(req.url)
     
-    # Si es TikTok, usar el puente de Hugging Face
+    is_story = "/story/" in raw_original_url or "/stories/" in raw_original_url
+    
+    # 1. Puente Hugging Face Space si es TikTok
     if "tiktok.com" in url:
         try:
-            print(f"TikTok URL detected. Querying Hugging Face Space bridge...")
+            print("TikTok URL detected. Querying Hugging Face Space bridge...")
             async with httpx.AsyncClient() as client:
                 hf_resp = await client.post(
                     "https://veterano901-servidorpropio.hf.space/api/extract-stream",
@@ -163,14 +202,12 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
                     hf_video_url = hf_data.get("videoUrl")
                     
                     if hf_video_url:
-                        # Extraer el ID del stream de Hugging Face
                         match = re.search(r'/download-stream/([^?]+)', hf_video_url)
                         if match:
                             hf_stream_id = match.group(1)
                             codec_match = re.search(r'codec=([^&]+)', hf_video_url)
                             codec = codec_match.group(1) if codec_match else "h264"
                             
-                            # Registrar en la caché de AWS apuntando al streaming de Hugging Face
                             stream_id = str(uuid.uuid4())
                             stream_cache[stream_id] = {
                                 "url": f"https://veterano901-servidorpropio.hf.space/download-stream/{hf_stream_id}?codec={codec}",
@@ -180,12 +217,14 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
                                 "filename": f"{hf_data.get('title', 'Video_TikTok')}.mp4"
                             }
                             
-                            # Expirar en 30 minutos
                             loop = asyncio.get_running_loop()
                             loop.call_later(1800, lambda: stream_cache.pop(stream_id, None))
                             
                             base_url = str(request.base_url).rstrip('/')
                             download_link = f"{base_url}/download-stream/{stream_id}?codec={codec}"
+                            
+                            format_label = "Historia de TikTok" if is_story else "Video Full HD (1080p)"
+                            media_type = "story" if is_story else "video"
                             
                             return {
                                 "success": True,
@@ -193,16 +232,20 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
                                 "title": hf_data.get("title", "Video de TikTok"),
                                 "thumbnail": hf_data.get("thumbnail", ""),
                                 "videoUrl": download_link,
-                                "needs_processing": False
+                                "needs_processing": False,
+                                "media_type": media_type,
+                                "format_label": format_label,
+                                "is_story": is_story
                             }
-                print(f"Hugging Face space responded with status {hf_resp.status_code}: {hf_resp.text}, falling back to direct EC2 extraction...")
+                print(f"Hugging Face space responded with status {hf_resp.status_code}, falling back to direct EC2 extraction...")
         except Exception as e:
             print(f"Hugging Face Bridge exception: {e}, falling back to direct EC2 extraction...")
             
-    # Para Twitter y otras plataformas, extracción directa desde AWS sin proxies
+    # 2. Extracción directa desde EC2
     fmt_str = 'bestvideo+bestaudio/best' if req.format_preference == 'best' else 'bestvideo[vcodec*=h264]+bestaudio/best[vcodec*=h264]/best'
     ydl_opts = {
         'format': fmt_str,
+        'quiet': True,
     }
     
     if os.path.exists("master_cookies.txt"):
@@ -228,7 +271,6 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
         codec = "hevc" if ("h265" in vcodec or "hevc" in vcodec or "hvc1" in vcodec) else "h264"
         
         stream_id = str(uuid.uuid4())
-        
         stream_cache[stream_id] = {
             "url": stream_url,
             "headers": http_headers,
@@ -241,17 +283,32 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
         base_url = str(request.base_url).rstrip('/')
         download_link = f"{base_url}/download-stream/{stream_id}?codec={codec}"
         
+        w = info.get('width') or 0
+        h = info.get('height') or 0
+        is_fhd = (w >= 1080 or h >= 1080)
+        
+        format_label = "Historia de TikTok" if is_story else ("Video Full HD (1080p)" if is_fhd else "Video HD")
+        media_type = "story" if is_story else "video"
+        
         return {
             "success": True,
             "platform": platform,
             "title": title,
             "thumbnail": thumbnail,
             "videoUrl": download_link,
-            "needs_processing": False
+            "needs_processing": False,
+            "author": info.get('uploader') or info.get('channel') or "",
+            "media_type": media_type,
+            "format_label": format_label,
+            "width": w,
+            "height": h,
+            "duration": info.get('duration') or 0,
+            "is_story": is_story
         }
         
     except yt_dlp.utils.DownloadError as e:
         error_msg = str(e)
+        # 3. Fallback de emergencia a TikWM HD
         if "tiktok.com" in url or "douyin.com" in url:
             try:
                 print(f"Direct yt-dlp failed ({error_msg}), attempting TikWM HD fallback...")
@@ -261,7 +318,15 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
                         tw_data = tw_resp.json()
                         if tw_data.get("code") == 0 and tw_data.get("data"):
                             d = tw_data["data"]
-                            v_url = d.get("hdplay") or d.get("play")
+                            images = d.get("images") or []
+                            live_images = d.get("live_images") or []
+                            has_live = any(bool(x) for x in live_images)
+                            is_gallery = len(images) > 0 and not has_live
+                            
+                            media_type = "live_photo" if has_live else ("gallery" if is_gallery else ("story" if is_story else "video"))
+                            format_label = "Foto Animada (Live Photo)" if has_live else (f"Galería de Fotos ({len(images)})" if is_gallery else ("Historia de TikTok" if is_story else "Video HD"))
+                            
+                            v_url = (live_images[0] if has_live and live_images[0] else None) or d.get("hdplay") or d.get("play")
                             if v_url:
                                 if not v_url.startswith("http"):
                                     v_url = "https://tikwm.com" + v_url
@@ -282,7 +347,14 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
                                     "title": d.get("title", "Video de TikTok"),
                                     "thumbnail": d.get("cover", ""),
                                     "videoUrl": f"{base_url}/download-stream/{stream_id}?codec=h264",
-                                    "needs_processing": False
+                                    "needs_processing": False,
+                                    "images": images,
+                                    "liveImages": live_images,
+                                    "isLivePhoto": has_live,
+                                    "isStory": is_story,
+                                    "media_type": media_type,
+                                    "format_label": format_label,
+                                    "author": d.get("author", {}).get("nickname") or d.get("author", {}).get("unique_id") or ""
                                 }
             except Exception as tw_err:
                 print(f"TikWM emergency fallback error: {tw_err}")
@@ -293,26 +365,14 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 
+# ----------------- RUTA DE PERFILES (TODOS LOS USUARIOS) -----------------
+
 class ProfileRequest(BaseModel):
     url: str
     start: int = 1
     count: int = 35
 
 profile_cache = {}
-known_secuids = {
-    "zullyy_cs": "MS4wLjABAAAAnzGPOdlUYHwU5JTEkikjFo5aOcZcDEc3gG_L3er_FzJmmtdlidmNkJiDJguukOYT",
-    "aydnsarpy": "MS4wLjABAAAALMBGx1TWh1CXBuUdjYVzWd7RGMWeDNYK4So7O6nZkbunSlORgH7rvm6ak8Oo-g-i",
-    "zachking": "MS4wLjABAAAANnzJ9pdfxtlf3m5Ku_M-rCXVitJC13w4GavqyUD3RE8h1cZ-7O9FT-uQ9rCJjU_E"
-}
-
-def format_count_helper(n):
-    if not n:
-        return '0'
-    if n >= 1_000_000:
-        return f'{n / 1_000_000:.1f}M'.replace('.0M', 'M')
-    if n >= 1_000:
-        return f'{n / 1_000:.1f}K'.replace('.0K', 'K')
-    return str(n)
 
 @app.post("/api/profile")
 async def extract_profile_endpoint(req: ProfileRequest):
@@ -322,7 +382,11 @@ async def extract_profile_endpoint(req: ProfileRequest):
         m = re.search(r'@([a-zA-Z0-9_.-]+)', username)
         if m:
             username = m.group(1)
-    username = username.lstrip('@').split('?')[0].split('/')[0]
+        else:
+            m2 = re.search(r'tiktok\.com\/([a-zA-Z0-9_.-]+)', username)
+            if m2:
+                username = m2.group(1)
+    username = username.lstrip('@').split('?')[0].split('/')[0].strip()
     
     if not username:
         raise HTTPException(status_code=400, detail="Por favor ingresa un nombre de usuario o enlace de perfil válido.")
@@ -335,20 +399,42 @@ async def extract_profile_endpoint(req: ProfileRequest):
     if cache_key in profile_cache:
         return profile_cache[cache_key]
         
+    # Extraer metadatos de usuario (avatar 1080p, bio, seguidores, likes) en paralelo
+    user_meta = {}
+    if start_idx == 1:
+        try:
+            user_meta = await fetch_user_meta(username)
+        except Exception as e:
+            print(f"Meta error for @{username}: {e}")
+
+    # Si es cuenta privada detectada desde la página oficial
+    if user_meta.get("is_private"):
+        return {
+            "success": True,
+            "is_private": True,
+            "username": username,
+            "nickname": user_meta.get("nickname") or username,
+            "avatar": user_meta.get("avatar") or "",
+            "signature": user_meta.get("signature") or "",
+            "verified": user_meta.get("verified", False),
+            "followers": format_count_helper(user_meta.get("followers", 0)),
+            "following": format_count_helper(user_meta.get("following", 0)),
+            "total_likes": format_count_helper(user_meta.get("likes", 0)),
+            "total_videos": 0,
+            "message": "Esta cuenta es privada. Solo los seguidores aprobados pueden ver su contenido.",
+            "videos": [],
+            "has_more": False,
+            "next_start": 0
+        }
+
+    # yt-dlp sin cookies para evitar bloqueos por sesión
     ydl_opts = {
         'extract_flat': 'in_playlist',
         'playlist_items': f'{start_idx}:{end_idx}',
         'quiet': True,
     }
-    if os.path.exists("master_cookies.txt"):
-        ydl_opts['cookiefile'] = "master_cookies.txt"
-    elif os.path.exists("www.tiktok.com_cookies.txt"):
-        ydl_opts['cookiefile'] = "www.tiktok.com_cookies.txt"
-        
+    
     target_endpoint = f"https://www.tiktok.com/@{username}"
-    if start_idx > 1 and username.lower() in known_secuids:
-        target_endpoint = f"tiktokuser:{known_secuids[username.lower()]}"
-        
     def get_info(endpoint):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             return ydl.extract_info(endpoint, download=False)
@@ -362,17 +448,24 @@ async def extract_profile_endpoint(req: ProfileRequest):
                 "success": True,
                 "is_private": True,
                 "username": username,
-                "nickname": username,
-                "avatar": "",
+                "nickname": user_meta.get("nickname") or username,
+                "avatar": user_meta.get("avatar") or "",
+                "signature": user_meta.get("signature") or "",
+                "verified": user_meta.get("verified", False),
+                "followers": format_count_helper(user_meta.get("followers", 0)),
+                "following": format_count_helper(user_meta.get("following", 0)),
+                "total_likes": format_count_helper(user_meta.get("likes", 0)),
+                "total_videos": 0,
                 "message": "Esta cuenta es privada. Solo los seguidores aprobados pueden ver su contenido.",
                 "videos": [],
                 "has_more": False,
                 "next_start": 0
             }
-        # Intentar fallback con channel_id (secUid) si está registrado
-        if ("secondary user id" in err or "404" in err) and username.lower() in known_secuids:
+        # Si falló, intentar con sec_uid si se obtuvo
+        sec_uid = user_meta.get("sec_uid")
+        if sec_uid and ("secondary user id" in err or "404" in err):
             try:
-                info = await asyncio.to_thread(get_info, f"tiktokuser:{known_secuids[username.lower()]}")
+                info = await asyncio.to_thread(get_info, f"tiktokuser:{sec_uid}")
             except Exception:
                 raise HTTPException(status_code=400, detail=f"El perfil @{username} no existe, es privado o no tiene publicaciones públicas.")
         elif "secondary user id" in err or "not found" in err or "404" in err:
@@ -384,17 +477,16 @@ async def extract_profile_endpoint(req: ProfileRequest):
         
     entries = info.get('entries') or []
     videos = []
-    nickname = username
-    avatar = ""
+    nickname = user_meta.get("nickname") or username
+    avatar = user_meta.get("avatar") or ""
     
     for item in entries:
         if not item:
             continue
         v_id = item.get('id')
-        if item.get('channel_id'):
-            known_secuids[username.lower()] = item.get('channel_id')
         v_url = item.get('url') or f"https://www.tiktok.com/@{username}/video/{v_id}"
-        nickname = item.get('channel') or item.get('uploader') or nickname
+        if not nickname or nickname == username:
+            nickname = item.get('channel') or item.get('uploader') or nickname
         
         thumbs = item.get('thumbnails') or []
         thumb_url = ""
@@ -426,22 +518,10 @@ async def extract_profile_endpoint(req: ProfileRequest):
         
     stories = []
     if start_idx == 1:
-        if videos:
-            try:
-                async with httpx.AsyncClient() as client:
-                    tw_res = await client.post('https://tikwm.com/api/', data={'url': videos[0]['url']}, timeout=5.0)
-                    if tw_res.status_code == 200:
-                        tw_data = tw_res.json().get('data', {})
-                        avatar = tw_data.get('author', {}).get('avatar') or ""
-                        if not nickname or nickname == username:
-                            nickname = tw_data.get('author', {}).get('nickname') or nickname
-            except Exception:
-                pass
-                
         # Extraer historias activas (24h) del usuario
         try:
-            async with httpx.AsyncClient() as client:
-                st_res = await client.get(f'https://tikwm.com/api/user/story?unique_id={username}', timeout=6.0)
+            async with httpx.AsyncClient(timeout=6.0) as client:
+                st_res = await client.get(f'https://tikwm.com/api/user/story?unique_id={username}')
                 if st_res.status_code == 200:
                     st_data = st_res.json()
                     if st_data.get('code') == 0 and st_data.get('data', {}).get('videos'):
@@ -478,6 +558,12 @@ async def extract_profile_endpoint(req: ProfileRequest):
         "username": username,
         "nickname": nickname,
         "avatar": avatar,
+        "signature": user_meta.get("signature", ""),
+        "verified": user_meta.get("verified", False),
+        "followers": format_count_helper(user_meta.get("followers", 0)),
+        "following": format_count_helper(user_meta.get("following", 0)),
+        "total_likes": format_count_helper(user_meta.get("likes", 0)),
+        "total_videos": user_meta.get("total_videos", len(videos)),
         "video_count": len(videos),
         "has_active_story": len(stories) > 0 if start_idx == 1 else False,
         "stories": stories if start_idx == 1 else [],
