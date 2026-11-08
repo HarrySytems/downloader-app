@@ -62,7 +62,10 @@ export const metadata: Metadata = {
 };
 
 export const viewport = {
-  themeColor: "#3b82f6",
+  themeColor: "#0088ff",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
 };
 
 export default function RootLayout({
@@ -111,7 +114,7 @@ export default function RootLayout({
         />
         <script src="https://quge5.com/88/tag.min.js" data-zone="242786" async data-cfasync="false"></script>
       </head>
-      <body className="min-h-full flex flex-col bg-slate-50 dark:bg-slate-900 transition-colors duration-200">{children}</body>
+      <body className="min-h-full flex flex-col bg-[#070e20] text-white transition-colors duration-200 overflow-x-hidden">{children}</body>
     </html>
   );
 }

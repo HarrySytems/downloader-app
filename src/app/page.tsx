@@ -19,6 +19,8 @@ import {
 import VideoCard, { VideoData } from '@/components/VideoCard';
 import ProfileCard, { ProfileData, ProfileStoryItem, ProfileVideoItem } from '@/components/ProfileCard';
 import Footer from '@/components/Footer';
+import ByteLogLogo from '@/components/ByteLogLogo';
+import LandingFeatures from '@/components/LandingFeatures';
 
 // Custom SVG Icons for Brands
 const TikTokIcon = (props: React.SVGProps<SVGSVGElement>) => (
@@ -343,16 +345,16 @@ export default function Home() {
             }}
             className="flex items-center gap-3 cursor-pointer shrink-0 self-start md:self-auto"
           >
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center text-white shadow-md shadow-sky-500/20">
-              <Download className="w-5 h-5 stroke-[2.5]" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center text-white shadow-md shadow-sky-500/20 overflow-hidden p-1">
+              <img src="/logo.png" alt="ByteLog Logo" className="w-full h-full object-contain" />
             </div>
             <div>
               <h1 className="text-base sm:text-lg font-black tracking-tight text-white flex items-center gap-1.5">
-                <span>Descargador de Videos</span>
-                <span className="text-sky-400">HD</span>
+                <span>Downloader</span>
+                <span className="text-sky-400">ByteLog</span>
               </h1>
               <p className="text-[11px] text-slate-400 font-medium hidden sm:block">
-                Descarga videos y perfiles de TikTok
+                downloader.bytelog.lat
               </p>
             </div>
           </div>
@@ -571,18 +573,28 @@ export default function Home() {
 
         {/* Estado inicial cuando no hay búsquedas activas */}
         {!profileData && !resultData && !loading && !error && (
-          <div className="py-12 sm:py-20 flex flex-col items-center text-center max-w-2xl mx-auto">
-            <div className="w-16 h-16 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center mb-6 shadow-xl shadow-sky-500/5">
-              <Download className="w-8 h-8" />
+          <div className="py-8 sm:py-14 flex flex-col items-center text-center max-w-5xl mx-auto w-full px-2 sm:px-4">
+            
+            {/* Logo Oficial Downloader ByteLog Animado en el Centro */}
+            <div className="mb-6 flex flex-col items-center justify-center">
+              <ByteLogLogo size="lg" animated={true} />
+              
+              <div className="mt-4 inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-slate-800/80 border border-sky-500/30 text-sky-400 text-xs font-mono font-bold tracking-wider shadow-sm">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                <span>downloader.bytelog.lat</span>
+              </div>
             </div>
 
-            <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight mb-3">
+            <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight mb-3">
               Descarga Cualquier Video o Perfil Completo
             </h2>
 
-            <p className="text-sm sm:text-base text-slate-400 max-w-md leading-relaxed">
-              Ingresa el enlace de un video, historia o busca a cualquier creador de TikTok con su <strong className="text-sky-400">@usuario</strong> para ver su perfil y descargar sus videos en HD.
+            <p className="text-sm sm:text-base text-slate-400 max-w-xl leading-relaxed mb-8">
+              Ingresa el enlace de un video o busca a cualquier creador de TikTok con su <strong className="text-sky-400">@usuario</strong> para ver sus publicaciones y descargar todas sus historias activas de 24 horas en Full HD.
             </p>
+
+            {/* Componente de Características, Beneficios y FAQ */}
+            <LandingFeatures />
           </div>
         )}
 
@@ -591,21 +603,34 @@ export default function Home() {
       {/* Footer */}
       <Footer />
 
-      {/* Botón Flotante de Telegram */}
-      <a
-        href="https://t.me/ByteDownloaderHD_bot"
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label="Descargar con Bot de Telegram"
-        className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-3 rounded-full bg-gradient-to-r from-sky-500 via-sky-600 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-xs sm:text-sm shadow-xl shadow-sky-500/30 transition-all hover:scale-105 active:scale-95 group border border-sky-300/30 backdrop-blur"
-      >
-        <span className="relative flex h-2.5 w-2.5">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400"></span>
-        </span>
-        <TelegramIcon className="w-5 h-5 text-white transition-transform group-hover:rotate-12" />
-        <span className="tracking-wide">Bot de Telegram</span>
-      </a>
+      {/* Botón Flotante de Telegram con Nube de Texto Volando */}
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
+        {/* Nube de Texto Volando */}
+        <div className="relative mb-3.5 mr-1 group">
+          <div className="relative flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-[#0b1428]/95 border border-sky-400/50 text-white text-xs font-bold shadow-2xl shadow-sky-500/20 backdrop-blur-md animate-bounce select-none">
+            <span className="text-sm">💬</span>
+            <span className="bg-gradient-to-r from-sky-300 to-white bg-clip-text text-transparent">
+              ¡Descarga historias y videos desde Telegram!
+            </span>
+            <span className="w-2.5 h-2.5 absolute -bottom-1.5 right-6 bg-[#0b1428] border-r border-b border-sky-400/50 rotate-45"></span>
+          </div>
+        </div>
+
+        <a
+          href="https://t.me/ByteDownloaderHD_bot"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Descargar con Bot de Telegram"
+          className="flex items-center gap-2.5 px-4 py-3 rounded-full bg-gradient-to-r from-sky-500 via-sky-600 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-xs sm:text-sm shadow-xl shadow-sky-500/30 transition-all hover:scale-105 active:scale-95 group border border-sky-300/30 backdrop-blur"
+        >
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400"></span>
+          </span>
+          <TelegramIcon className="w-5 h-5 text-white transition-transform group-hover:rotate-12" />
+          <span className="tracking-wide">Bot de Telegram</span>
+        </a>
+      </div>
     </div>
   );
 }

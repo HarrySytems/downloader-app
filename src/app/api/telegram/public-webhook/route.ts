@@ -5,7 +5,7 @@ const ADMIN_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '9132469583:AAErssUcng
 const ADMIN_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '7249715086';
 const BASE_WEB_URL = 'https://downloader.bytelog.lat';
 
-// Helper para llamadas al bot público
+// Helper para llamadas al bot público de Telegram
 async function callPublicBot(method: string, body: any) {
   try {
     const res = await fetch(`https://api.telegram.org/bot${PUBLIC_BOT_TOKEN}/${method}`, {
@@ -20,7 +20,7 @@ async function callPublicBot(method: string, body: any) {
   }
 }
 
-// Alerta automática al bot privado del administrador
+// Alerta al bot privado del administrador (@Avisodescarga_bot)
 async function notifyAdminBot(text: string) {
   try {
     await fetch(`https://api.telegram.org/bot${ADMIN_BOT_TOKEN}/sendMessage`, {
@@ -36,7 +36,7 @@ async function notifyAdminBot(text: string) {
   } catch {}
 }
 
-// Helper para resolver videos/fotos individuales
+// Extractor de videos y fotos individuales
 async function fetchTikTokMedia(url: string) {
   try {
     const res = await fetch(`https://tikwm.com/api/?url=${encodeURIComponent(url)}`, {
@@ -72,7 +72,7 @@ async function fetchTikTokMedia(url: string) {
   }
 }
 
-// Helper para resolver perfiles e historias activas completas (con paginación de cursor)
+// Extractor de perfil y de historias activas completas (cursor multi-página)
 async function fetchProfileData(username: string) {
   try {
     const cleanUser = username.replace(/^@/, '').trim();
@@ -93,7 +93,7 @@ async function fetchProfileData(username: string) {
       }
     } catch {}
 
-    // 2. TikWM Fallback con cursor para todas las historias
+    // 2. Fallback a TikWM posts + info + stories
     const postsRes = await fetch(`https://tikwm.com/api/user/posts?unique_id=${encodeURIComponent(cleanUser)}&count=20`, {
       headers: { 'User-Agent': 'Mozilla/5.0' }
     });
@@ -116,7 +116,7 @@ async function fetchProfileData(username: string) {
       play: item.play ? (item.play.startsWith('http') ? item.play : `https://tikwm.com${item.play}`) : ''
     }));
 
-    // Historias activas con soporte de cursor completo (hasta 5 páginas de 3)
+    // Historias activas con soporte de cursor completo
     let stories: any[] = [];
     try {
       let cursor = 0;
@@ -220,12 +220,215 @@ export async function POST(request: Request) {
 
       await callPublicBot('answerCallbackQuery', { callback_query_id: cqId });
 
-      // CASO A: Descargar TODAS las historias
-      if (data.startsWith('dl_all:')) {
-        const username = data.replace('dl_all:', '').trim();
+      // CASO: Menú Principal
+      if (data === 'start_menu') {
+        await sendWelcomeMessage(chatId, cq.from?.first_name || 'Amigo');
+        return NextResponse.json({ ok: true });
+      }
+
+      // CASO: Solicitar nuevo usuario para buscar (bucle sin fin)
+      if (data === 'ask_user') {
         await callPublicBot('sendMessage', {
           chat_id: chatId,
-          text: `⏳ <b>Procesando y enviando todas las historias de @${username}...</b>`,
+          text: `
+🔍 <b>Búsqueda de Usuario o Video</b>
+
+Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <code>@jaimeedwalker</code>) o pega el enlace de cualquier video de TikTok:
+`.trim(),
+          parse_mode: 'HTML'
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      // CASO: Volver a mostrar la tarjeta del perfil
+      if (data.startsWith('view_profile:')) {
+        const username = data.replace('view_profile:', '').trim();
+        await handlePublicUserProfile(chatId, username, fromUser);
+        return NextResponse.json({ ok: true });
+      }
+
+      // CASO: Menú para ver historias una por una
+      if (data.startsWith('view_stories_menu:')) {
+        const username = data.replace('view_stories_menu:', '').trim();
+        const profile = await fetchProfileData(username);
+        const stories = profile?.stories || [];
+
+        if (stories.length === 0) {
+          await callPublicBot('sendMessage', {
+            chat_id: chatId,
+            text: `ℹ️ <b>@${username}</b> no tiene historias activas en este momento (recuerda que expiran a las 24 horas).`,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }],
+                [{ text: '🏠 Menú Principal', callback_data: 'start_menu' }]
+              ]
+            }
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        // Botones para VER cada historia directamente en Telegram
+        const buttons = stories.map((s: any, idx: number) => {
+          return [{
+            text: `👁️ Ver Historia ${idx + 1} (${s.is_image ? '📷 Foto' : '🎬 Video'})`,
+            callback_data: `show_story:${username}:${idx}`
+          }];
+        });
+
+        buttons.push([
+          { text: `📥 Descargar todas (${stories.length})`, callback_data: `dl_all_stories:${username}` }
+        ]);
+        buttons.push([
+          { text: '🔙 Volver al perfil', callback_data: `view_profile:${username}` },
+          { text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }
+        ]);
+
+        await callPublicBot('sendMessage', {
+          chat_id: chatId,
+          text: `⏱️ <b>Historias Activas de @${username} (${stories.length}):</b>\n\nElige una historia para verla aquí mismo en Telegram:`,
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: buttons }
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      // CASO: VER una historia específica directamente en Telegram (sin mandarlo afuera)
+      if (data.startsWith('show_story:')) {
+        const parts = data.split(':');
+        const username = parts[1];
+        const storyIdx = parseInt(parts[2] || '0', 10);
+
+        const profile = await fetchProfileData(username);
+        const stories = profile?.stories || [];
+        const story = stories[storyIdx];
+
+        if (!story) {
+          await callPublicBot('sendMessage', {
+            chat_id: chatId,
+            text: '⚠️ Esta historia ya no se encuentra disponible.',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '⏱️ Ver historias disponibles', callback_data: `view_stories_menu:${username}` }]
+              ]
+            }
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        // Usamos nuestro proxy para que Telegram descargue el archivo sin bloqueos
+        const proxyStreamUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(story.download_url)}`;
+        const caption = `⏱️ <b>Historia ${storyIdx + 1} de ${stories.length}</b> de <b>@${username}</b>\n${story.is_image ? '📷 Tipo: Foto' : '🎬 Tipo: Video HD'}\n\n¿Deseas descargarla como archivo a tu dispositivo?`;
+
+        const actionButtons = {
+          inline_keyboard: [
+            [
+              { text: '📥 Sí, descargar archivo', callback_data: `dl_file_story:${username}:${storyIdx}` },
+              { text: '❌ No, ver otras', callback_data: `view_stories_menu:${username}` }
+            ],
+            [
+              { text: '🔙 Volver al perfil', callback_data: `view_profile:${username}` },
+              { text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }
+            ]
+          ]
+        };
+
+        let sentSuccess = false;
+
+        // Si es foto, se envía con sendPhoto
+        if (story.is_image) {
+          const resPhoto = await callPublicBot('sendPhoto', {
+            chat_id: chatId,
+            photo: proxyStreamUrl,
+            caption,
+            parse_mode: 'HTML',
+            reply_markup: actionButtons
+          });
+          if (resPhoto?.ok) sentSuccess = true;
+        } else {
+          // Si es video, se envía con sendVideo
+          const resVid = await callPublicBot('sendVideo', {
+            chat_id: chatId,
+            video: proxyStreamUrl,
+            caption,
+            parse_mode: 'HTML',
+            reply_markup: actionButtons
+          });
+          if (resVid?.ok) sentSuccess = true;
+        }
+
+        // Fallback si la API de Telegram no pudo descargar directamente el stream
+        if (!sentSuccess) {
+          await callPublicBot('sendMessage', {
+            chat_id: chatId,
+            text: `${caption}\n\n👇 Haz clic abajo para ver o guardar:`,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '📥 Descargar en HD', url: `${proxyStreamUrl}&filename=historia_${username}_${storyIdx + 1}.${story.is_image ? 'jpg' : 'mp4'}` }],
+                [{ text: '⏱️ Ver otras historias', callback_data: `view_stories_menu:${username}` }],
+                [{ text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }]
+              ]
+            }
+          });
+        }
+
+        return NextResponse.json({ ok: true });
+      }
+
+      // CASO: DESCARGAR una historia como archivo (Document)
+      if (data.startsWith('dl_file_story:')) {
+        const parts = data.split(':');
+        const username = parts[1];
+        const storyIdx = parseInt(parts[2] || '0', 10);
+
+        const profile = await fetchProfileData(username);
+        const stories = profile?.stories || [];
+        const story = stories[storyIdx];
+
+        if (story) {
+          const ext = story.is_image ? 'jpg' : 'mp4';
+          const proxyFileUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(story.download_url)}&filename=historia_${username}_${storyIdx + 1}.${ext}`;
+
+          await callPublicBot('sendDocument', {
+            chat_id: chatId,
+            document: proxyFileUrl,
+            caption: `✅ <b>Historia ${storyIdx + 1} de @${username}</b> lista para guardar en tu galería.`,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: '⏱️ Ver otra historia', callback_data: `view_stories_menu:${username}` },
+                  { text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }
+                ],
+                [{ text: '🏠 Menú Principal', callback_data: 'start_menu' }]
+              ]
+            }
+          }).catch(async () => {
+            // Fallback con botón de descarga directa
+            await callPublicBot('sendMessage', {
+              chat_id: chatId,
+              text: `📥 <b>Descarga Directa:</b>`,
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: 'Guardar Archivo HD', url: proxyFileUrl }],
+                  [{ text: '⏱️ Ver otra historia', callback_data: `view_stories_menu:${username}` }]
+                ]
+              }
+            });
+          });
+
+          await notifyAdminBot(`🤖 <b>Descarga Bot:</b> ${fromUser} descargó la historia #${storyIdx + 1} de <b>@${username}</b>.`);
+        }
+        return NextResponse.json({ ok: true });
+      }
+
+      // CASO: DESCARGAR TODAS LAS HISTORIAS
+      if (data.startsWith('dl_all_stories:')) {
+        const username = data.replace('dl_all_stories:', '').trim();
+        await callPublicBot('sendMessage', {
+          chat_id: chatId,
+          text: `⏳ <b>Enviando todas las historias de @${username} a tu chat...</b>`,
           parse_mode: 'HTML'
         });
 
@@ -235,100 +438,55 @@ export async function POST(request: Request) {
         if (stories.length === 0) {
           await callPublicBot('sendMessage', {
             chat_id: chatId,
-            text: `ℹ️ <b>@${username}</b> no tiene historias activas en este momento (recuerda que expiran a las 24 horas).`,
+            text: `ℹ️ No hay historias activas disponibles para @${username}.`,
             parse_mode: 'HTML'
           });
         } else {
-          let sentCount = 0;
           for (let i = 0; i < stories.length; i++) {
             const st = stories[i];
-            const caption = `⏱️ <b>Historia ${i + 1}/${stories.length}</b> de @${username}\n${st.is_image ? '📷 Formato: Foto' : '🎬 Formato: Video HD'}`;
-            const proxyDownloadUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(st.download_url)}&filename=historia_${username}_${i + 1}.${st.is_image ? 'jpg' : 'mp4'}`;
+            const streamUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(st.download_url)}`;
+            const caption = `⏱️ <b>Historia ${i + 1}/${stories.length}</b> de @${username}`;
 
-            const inlineButton = {
-              inline_keyboard: [[
-                { text: `📥 Descarga Directa HD (${st.is_image ? 'Foto' : 'Video'})`, url: proxyDownloadUrl }
-              ]]
-            };
-
-            let sentOk = false;
-            if (st.is_image && st.download_url) {
-              const resPhoto = await callPublicBot('sendPhoto', {
+            if (st.is_image) {
+              await callPublicBot('sendPhoto', {
                 chat_id: chatId,
-                photo: st.download_url,
+                photo: streamUrl,
                 caption,
-                parse_mode: 'HTML',
-                reply_markup: inlineButton
+                parse_mode: 'HTML'
               });
-              if (resPhoto?.ok) sentOk = true;
-            } else if (!st.is_image && st.download_url) {
-              const resVid = await callPublicBot('sendVideo', {
+            } else {
+              await callPublicBot('sendVideo', {
                 chat_id: chatId,
-                video: st.download_url,
+                video: streamUrl,
                 caption,
-                parse_mode: 'HTML',
-                reply_markup: inlineButton
-              });
-              if (resVid?.ok) sentOk = true;
-            }
-
-            if (!sentOk) {
-              await callPublicBot('sendMessage', {
-                chat_id: chatId,
-                text: `${caption}\n\n👇 Haz clic abajo para descargar en alta calidad:`,
-                parse_mode: 'HTML',
-                reply_markup: inlineButton
+                parse_mode: 'HTML'
               });
             }
-            sentCount++;
           }
 
           await callPublicBot('sendMessage', {
             chat_id: chatId,
-            text: `✅ <b>¡Listo!</b> Se enviaron las ${sentCount} historias activas de <b>@${username}</b>.`,
-            parse_mode: 'HTML'
+            text: `✅ <b>¡Completado!</b> Se enviaron las ${stories.length} historias activas de <b>@${username}</b> a tu Telegram.`,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: '🔙 Volver al perfil', callback_data: `view_profile:${username}` },
+                  { text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }
+                ],
+                [{ text: '🏠 Menú Principal', callback_data: 'start_menu' }]
+              ]
+            }
           });
 
-          await notifyAdminBot(`🤖 <b>Descarga en Bot Público:</b> ${fromUser} descargó todas las historias (${sentCount}) de <b>@${username}</b>.`);
+          await notifyAdminBot(`🤖 <b>Descarga Masiva:</b> ${fromUser} descargó las ${stories.length} historias de <b>@${username}</b>.`);
         }
         return NextResponse.json({ ok: true });
       }
 
-      // CASO B: Listar historias una por una
-      if (data.startsWith('list_stories:')) {
-        const username = data.replace('list_stories:', '').trim();
-        const profile = await fetchProfileData(username);
-        const stories = profile?.stories || [];
-
-        if (stories.length === 0) {
-          await callPublicBot('sendMessage', {
-            chat_id: chatId,
-            text: `ℹ️ <b>@${username}</b> no tiene historias activas ahora mismo.`,
-            parse_mode: 'HTML'
-          });
-          return NextResponse.json({ ok: true });
-        }
-
-        const buttons = stories.map((s: any, idx: number) => {
-          const proxyUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(s.download_url)}&filename=historia_${username}_${idx + 1}.${s.is_image ? 'jpg' : 'mp4'}`;
-          return [{
-            text: `📥 Historia ${idx + 1} (${s.is_image ? '📷 Foto' : '🎬 Video'})`,
-            url: proxyUrl
-          }];
-        });
-
-        await callPublicBot('sendMessage', {
-          chat_id: chatId,
-          text: `⏱️ <b>Historias Activas de @${username} (${stories.length}):</b>\nElige cuál deseas descargar:`,
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: buttons }
-        });
-        return NextResponse.json({ ok: true });
-      }
-
-      // CASO C: Listar publicaciones recientes
-      if (data.startsWith('list_vids:')) {
-        const username = data.replace('list_vids:', '').trim();
+      // CASO: Ver publicaciones recientes
+      if (data.startsWith('view_vids_menu:')) {
+        const username = data.replace('view_vids_menu:', '').trim();
         const profile = await fetchProfileData(username);
         const videos = (profile?.videos || []).slice(0, 8);
 
@@ -336,31 +494,33 @@ export async function POST(request: Request) {
           await callPublicBot('sendMessage', {
             chat_id: chatId,
             text: `ℹ️ No se encontraron videos públicos para <b>@${username}</b>.`,
-            parse_mode: 'HTML'
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }]
+              ]
+            }
           });
           return NextResponse.json({ ok: true });
         }
 
         const buttons = videos.map((v: any, idx: number) => {
-          const label = v.title ? (v.title.length > 30 ? v.title.slice(0, 30) + '...' : v.title) : `Video #${idx + 1}`;
-          const proxyUrl = v.play 
-            ? `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(v.play)}&filename=video_${username}_${idx + 1}.mp4`
-            : `${BASE_WEB_URL}`;
-
+          const label = v.title ? (v.title.length > 28 ? v.title.slice(0, 28) + '...' : v.title) : `Video #${idx + 1}`;
+          const proxyUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(v.play)}&filename=video_${username}_${idx + 1}.mp4`;
           return [{
             text: `🎬 ${idx + 1}. ${label}`,
             url: proxyUrl
           }];
         });
 
-        buttons.push([{
-          text: '🌐 Ver perfil completo en la Web',
-          url: `${BASE_WEB_URL}`
-        }]);
+        buttons.push([
+          { text: '🔙 Volver al perfil', callback_data: `view_profile:${username}` },
+          { text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }
+        ]);
 
         await callPublicBot('sendMessage', {
           chat_id: chatId,
-          text: `🎬 <b>Últimas Publicaciones de @${username}:</b>\nSelecciona cualquier video para descargarlo en HD:`,
+          text: `🎬 <b>Últimas Publicaciones de @${username}:</b>\nToca cualquier video para descargarlo en HD:`,
           parse_mode: 'HTML',
           reply_markup: { inline_keyboard: buttons }
         });
@@ -383,32 +543,11 @@ export async function POST(request: Request) {
 
     // A) Comando /start o saludo
     if (text.startsWith('/start') || text.toLowerCase() === 'hola' || text.toLowerCase() === 'buenas') {
-      const welcomeText = `
-👋 <b>¡Hola, ${senderName}! Bienvenido a ByteDownloader HD Bot</b> 🚀
-
-Descarga cualquier contenido de <b>TikTok</b> sin marca de agua y en máxima calidad HD:
-
-• 🎬 <b>Descargar un Video o Foto:</b> Pega aquí el enlace de cualquier publicación.
-• ⏱️ <b>Descargar Historias (24h) o Perfiles:</b> Escribe el nombre de usuario (ejemplo: <code>@jaimeedwalker</code> o <code>jaimeedwalker</code>).
-• 🔒 <b>Cuentas Privadas:</b> El bot verifica automáticamente si la cuenta es privada o accesible.
-
-👉 <i>¡Escribe un <b>@usuario</b> o pega un enlace para comenzar ahora mismo!</i>
-`.trim();
-
-      await callPublicBot('sendMessage', {
-        chat_id: chatId,
-        text: welcomeText,
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '🌐 Abrir ByteDownloader en la Web', url: BASE_WEB_URL }]
-          ]
-        }
-      });
+      await sendWelcomeMessage(chatId, senderName);
       return NextResponse.json({ ok: true });
     }
 
-    // B) Si el usuario envió un enlace de TikTok (Media)
+    // B) Si el usuario envió un enlace de TikTok (Media o Perfil)
     const isUrl = /^https?:\/\//i.test(text);
     if (isUrl && (text.includes('tiktok.com') || text.includes('x.com') || text.includes('twitter.com'))) {
       const profileMatch = text.match(/tiktok\.com\/@([a-zA-Z0-9_.-]+)\/?(\?[^/]*)?$/i);
@@ -421,7 +560,7 @@ Descarga cualquier contenido de <b>TikTok</b> sin marca de agua y en máxima cal
 
       await callPublicBot('sendMessage', {
         chat_id: chatId,
-        text: '⏳ <b>Obteniendo video en HD sin marca de agua...</b>',
+        text: '⏳ <b>Procesando video en HD sin marca de agua...</b>',
         parse_mode: 'HTML'
       });
 
@@ -429,8 +568,13 @@ Descarga cualquier contenido de <b>TikTok</b> sin marca de agua y en máxima cal
       if (!media) {
         await callPublicBot('sendMessage', {
           chat_id: chatId,
-          text: '❌ <b>No se pudo descargar el video.</b>\nVerifica que el enlace sea correcto, público y esté disponible.',
-          parse_mode: 'HTML'
+          text: '❌ <b>No se pudo cargar este video.</b>\nVerifica que sea público y esté disponible.',
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔍 Buscar otro usuario o video', callback_data: 'ask_user' }]
+            ]
+          }
         });
         return NextResponse.json({ ok: true });
       }
@@ -444,49 +588,51 @@ Descarga cualquier contenido de <b>TikTok</b> sin marca de agua y en máxima cal
         });
 
         for (let i = 0; i < Math.min(media.images.length, 5); i++) {
-          const imgUrl = media.images[i];
-          const proxyImg = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(imgUrl)}&filename=foto_${i + 1}.jpg`;
+          const streamImg = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(media.images[i])}`;
           await callPublicBot('sendPhoto', {
             chat_id: chatId,
-            photo: imgUrl,
-            caption: `📷 Foto ${i + 1}/${media.images.length}`,
-            reply_markup: {
-              inline_keyboard: [[{ text: '📥 Descargar en HD', url: proxyImg }]]
-            }
-          }).catch(async () => {
-            await callPublicBot('sendMessage', {
-              chat_id: chatId,
-              text: `📷 Foto ${i + 1}:`,
-              reply_markup: {
-                inline_keyboard: [[{ text: '📥 Descargar en HD', url: proxyImg }]]
-              }
-            });
+            photo: streamImg,
+            caption: `📷 Foto ${i + 1}/${media.images.length}`
           });
         }
+
+        await callPublicBot('sendMessage', {
+          chat_id: chatId,
+          text: '¿Deseas descargar algo más?',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔍 Buscar otro usuario o video', callback_data: 'ask_user' }],
+              [{ text: '🏠 Menú Principal', callback_data: 'start_menu' }]
+            ]
+          }
+        });
         return NextResponse.json({ ok: true });
       }
 
-      // Si es video individual
+      // Si es video individual: se envía el video directamente en Telegram
+      const streamVideoUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(media.playUrl)}`;
       const caption = `🎬 <b>${media.title}</b>\n\n👤 Creador: <b>@${media.username}</b>\n✨ Calidad: <b>Full HD Sin Marca de Agua</b>`;
-      const proxyDownloadUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(media.playUrl)}&filename=video_${media.username}.mp4`;
-      const buttons: any[] = [
-        [{ text: '📥 Descargar Video HD Directo', url: proxyDownloadUrl }]
-      ];
 
-      if (media.musicUrl) {
-        const proxyAudio = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(media.musicUrl)}&filename=audio_${media.username}.mp3`;
-        buttons.push([{ text: '🎵 Descargar Audio MP3', url: proxyAudio }]);
-      }
-      buttons.push([{ text: '🌐 Ver en la Web', url: BASE_WEB_URL }]);
+      const videoActions = {
+        inline_keyboard: [
+          [
+            { text: '📥 Guardar como Archivo HD', url: `${streamVideoUrl}&filename=video_${media.username}.mp4` }
+          ],
+          [
+            { text: '🔍 Buscar otro usuario o video', callback_data: 'ask_user' },
+            { text: '🏠 Menú Principal', callback_data: 'start_menu' }
+          ]
+        ]
+      };
 
       let vidSent = false;
       if (media.playUrl) {
         const vidRes = await callPublicBot('sendVideo', {
           chat_id: chatId,
-          video: media.playUrl,
+          video: streamVideoUrl,
           caption,
           parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: buttons }
+          reply_markup: videoActions
         });
         if (vidRes?.ok) vidSent = true;
       }
@@ -494,13 +640,13 @@ Descarga cualquier contenido de <b>TikTok</b> sin marca de agua y en máxima cal
       if (!vidSent) {
         await callPublicBot('sendMessage', {
           chat_id: chatId,
-          text: `${caption}\n\n👇 Haz clic para descargar inmediatamente sin marca de agua:`,
+          text: `${caption}\n\n👇 Haz clic abajo para descargarlo:`,
           parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: buttons }
+          reply_markup: videoActions
         });
       }
 
-      await notifyAdminBot(`🤖 <b>Descarga en Bot Público:</b> ${fromUser} descargó el video de <b>@${media.username}</b>.`);
+      await notifyAdminBot(`🤖 <b>Descarga Video Bot:</b> ${fromUser} descargó el video de <b>@${media.username}</b>.`);
       return NextResponse.json({ ok: true });
     }
 
@@ -517,24 +663,56 @@ Descarga cualquier contenido de <b>TikTok</b> sin marca de agua y en máxima cal
       text: `
 👋 <b>¿Cómo usar ByteDownloader Bot?</b>
 
-• Para descargar un <b>Video o Foto</b>: Pega el enlace de TikTok directamente aquí.
-• Para ver <b>Historias</b> o <b>Perfil</b>: Escribe el usuario, por ejemplo:
+• <b>Para ver o descargar Historias:</b> Escribe el usuario, por ejemplo:
   👉 <code>@jaimeedwalker</code>
-  👉 <code>@tiktok</code>
+• <b>Para descargar un Video o Foto:</b> Pega el enlace de TikTok aquí.
 
 Si la cuenta es privada, te avisaré al instante. 🔒
 `.trim(),
-      parse_mode: 'HTML'
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🔍 Buscar usuario ahora', callback_data: 'ask_user' }],
+          [{ text: '🏠 Menú Principal', callback_data: 'start_menu' }]
+        ]
+      }
     });
 
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error('Error in public bot webhook:', err);
+    console.error('Error in public webhook:', err);
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
 }
 
-// Función central de perfiles para el bot público
+// Mensaje de bienvenida inicial
+async function sendWelcomeMessage(chatId: number, senderName: string) {
+  const welcomeText = `
+👋 <b>¡Hola, ${senderName}! Bienvenido a ByteDownloader HD Bot</b> 🚀
+
+Aquí puedes ver y descargar contenido de <b>TikTok</b> en máxima calidad HD sin salir de Telegram:
+
+• 🎬 <b>Ver y Descargar Videos:</b> Pega aquí el enlace de cualquier publicación.
+• ⏱️ <b>Ver Historias de 24h:</b> Escribe el nombre de usuario (ejemplo: <code>@jaimeedwalker</code>).
+• 🔒 <b>Cuentas Privadas:</b> Te informaré de inmediato si la cuenta es privada o accesible.
+
+👉 <i>Escribe un <b>@usuario</b> o pega un enlace para comenzar:</i>
+`.trim();
+
+  await callPublicBot('sendMessage', {
+    chat_id: chatId,
+    text: welcomeText,
+    parse_mode: 'HTML',
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '🔍 Buscar un usuario de TikTok', callback_data: 'ask_user' }],
+        [{ text: '🌐 Abrir ByteDownloader en la Web', url: BASE_WEB_URL }]
+      ]
+    }
+  });
+}
+
+// Función central para resolver perfiles y ofrecer flujo interactivo
 async function handlePublicUserProfile(chatId: number, username: string, fromUser: string) {
   await callPublicBot('sendMessage', {
     chat_id: chatId,
@@ -544,20 +722,34 @@ async function handlePublicUserProfile(chatId: number, username: string, fromUse
 
   const profile = await fetchProfileData(username);
 
+  // Si no se encuentra
   if (!profile) {
     await callPublicBot('sendMessage', {
       chat_id: chatId,
       text: `❌ <b>Usuario no encontrado</b>\n\nEl usuario <code>@${username}</code> no existe o no tiene publicaciones públicas. Por favor verifica que el nombre esté bien escrito.`,
-      parse_mode: 'HTML'
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }],
+          [{ text: '🏠 Menú Principal', callback_data: 'start_menu' }]
+        ]
+      }
     });
     return;
   }
 
+  // Si es cuenta privada
   if (profile.is_private) {
     await callPublicBot('sendMessage', {
       chat_id: chatId,
-      text: `🔒 <b>Cuenta Privada</b>\n\nEl usuario <code>@${username}</code> tiene su cuenta configurada como privada. TikTok solo permite ver sus publicaciones e historias a sus seguidores aprobados.`,
-      parse_mode: 'HTML'
+      text: `🔒 <b>Cuenta Privada</b>\n\nEl usuario <code>@${username}</code> tiene su cuenta configurada como privada. TikTok solo permite ver su contenido a sus seguidores aprobados.`,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }],
+          [{ text: '🏠 Menú Principal', callback_data: 'start_menu' }]
+        ]
+      }
     });
     return;
   }
@@ -574,32 +766,37 @@ ${profile.signature ? `📝 <i>"${profile.signature}"</i>\n` : ''}
 • ⏱️ Historias Activas (24h): <b>${storiesCount} disponibles</b>
 • 👥 Seguidores: <b>${profile.followers || '0'}</b>
 
-¿Qué deseas descargar? Elige una opción:
+¿Qué deseas hacer con el contenido de @${username}?
 `.trim();
 
   const keyboard: any[] = [];
 
   if (storiesCount > 0) {
     keyboard.push([
-      { text: `📥 Descargar todas las historias (${storiesCount})`, callback_data: `dl_all:${username}` }
+      { text: `⏱️ Ver historias una por una (${storiesCount})`, callback_data: `view_stories_menu:${username}` }
     ]);
     keyboard.push([
-      { text: `⏱️ Ver historias una por una`, callback_data: `list_stories:${username}` }
+      { text: `📥 Descargar todas las historias (${storiesCount})`, callback_data: `dl_all_stories:${username}` }
     ]);
   } else {
     keyboard.push([
-      { text: `⏱️ Sin historias activas (expiradas)`, callback_data: `list_stories:${username}` }
+      { text: `⏱️ Sin historias activas (expiradas)`, callback_data: `view_stories_menu:${username}` }
     ]);
   }
 
   if (videosCount > 0) {
     keyboard.push([
-      { text: `🎬 Ver publicaciones recientes (${videosCount})`, callback_data: `list_vids:${username}` }
+      { text: `🎬 Ver publicaciones recientes (${videosCount})`, callback_data: `view_vids_menu:${username}` }
     ]);
   }
 
   keyboard.push([
-    { text: '🌐 Abrir perfil completo en la Web', url: `${BASE_WEB_URL}` }
+    { text: '🔍 Buscar otro usuario', callback_data: 'ask_user' },
+    { text: '🏠 Menú Principal', callback_data: 'start_menu' }
+  ]);
+
+  keyboard.push([
+    { text: '🌐 Abrir perfil en la Web', url: `${BASE_WEB_URL}` }
   ]);
 
   await callPublicBot('sendMessage', {
@@ -609,7 +806,7 @@ ${profile.signature ? `📝 <i>"${profile.signature}"</i>\n` : ''}
     reply_markup: { inline_keyboard: keyboard }
   });
 
-  await notifyAdminBot(`🔍 <b>Consulta de Perfil en Bot Público:</b> ${fromUser} consultó a <b>@${username}</b> (${storiesCount} historias, ${totalPubs} publicaciones).`);
+  await notifyAdminBot(`🔍 <b>Consulta en Bot Público:</b> ${fromUser} consultó a <b>@${username}</b> (${storiesCount} historias, ${totalPubs} publicaciones).`);
 }
 
 export async function GET() {
