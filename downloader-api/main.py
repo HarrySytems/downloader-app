@@ -566,39 +566,78 @@ async def extract_profile_endpoint(req: ProfileRequest):
         
     stories = []
     if start_idx == 1:
-        # Extraer historias activas (24h) del usuario
+        # Extraer TODAS las historias activas (24h) del usuario con paginación y soporte de fotos/videos
         try:
-            async with httpx.AsyncClient(timeout=6.0) as client:
-                st_res = await client.get(f'https://tikwm.com/api/user/story?unique_id={username}')
-                if st_res.status_code == 200:
-                    st_data = st_res.json()
-                    if st_data.get('code') == 0 and st_data.get('data', {}).get('videos'):
-                        for s in st_data['data']['videos']:
-                            s_id = s.get('video_id')
-                            if not s_id:
-                                continue
-                            s_url = f"https://www.tiktok.com/@{username}/video/{s_id}"
-                            s_dur = s.get('duration') or 15
-                            s_dur_str = f"{int(s_dur // 60)}:{int(s_dur % 60):02d}" if s_dur else "0:15"
-                            s_cover = s.get('cover') or s.get('origin_cover') or s.get('ai_dynamic_cover') or ""
-                            if not avatar:
-                                avatar = s.get('author', {}).get('avatar') or avatar
-                            if not nickname or nickname == username:
-                                nickname = s.get('author', {}).get('nickname') or nickname
-                            stories.append({
-                                "id": s_id,
-                                "url": s_url,
-                                "title": s.get('title') or f"Historia de @{username}",
-                                "thumbnail": s_cover,
-                                "duration": s_dur_str,
-                                "views": format_count_helper(s.get('play_count', 0)),
-                                "likes": format_count_helper(s.get('digg_count', 0)),
-                                "created_at": s.get('create_time', 0),
-                                "is_story": True,
-                                "download_url": s.get('play') or ""
-                            })
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                cursor = 0
+                has_more = True
+                pages_count = 0
+                seen_story_ids = set()
+
+                while has_more and pages_count < 6:
+                    pages_count += 1
+                    url = f'https://tikwm.com/api/user/story?unique_id={username}'
+                    if cursor:
+                        url += f'&cursor={cursor}'
+
+                    st_res = await client.get(url)
+                    if st_res.status_code == 200:
+                        st_data = st_res.json()
+                        if st_data.get('code') == 0 and st_data.get('data'):
+                            data_obj = st_data['data']
+                            items = data_obj.get('videos') or []
+                            for s in items:
+                                s_id = s.get('video_id')
+                                if not s_id or s_id in seen_story_ids:
+                                    continue
+                                seen_story_ids.add(s_id)
+
+                                images = s.get('images') or []
+                                is_image = len(images) > 0 or s.get('biz_tag') == 'tt_photomode_story'
+
+                                s_url = f"https://www.tiktok.com/@{username}/photo/{s_id}" if is_image else f"https://www.tiktok.com/@{username}/video/{s_id}"
+                                s_dur = s.get('duration') or 0
+                                s_dur_str = "Foto" if is_image else (f"{int(s_dur // 60)}:{int(s_dur % 60):02d}" if s_dur else "0:15")
+                                s_cover = (images[0] if is_image and images else None) or s.get('cover') or s.get('origin_cover') or s.get('ai_dynamic_cover') or ""
+
+                                # URL directa de descarga (foto en alta resolución o video mp4)
+                                if is_image and images:
+                                    dl_url = images[0]
+                                else:
+                                    dl_url = s.get('play') or ""
+                                    if dl_url and not dl_url.startswith('http'):
+                                        dl_url = f"https://tikwm.com{dl_url}"
+
+                                if not avatar:
+                                    avatar = s.get('author', {}).get('avatar') or avatar
+                                if not nickname or nickname == username:
+                                    nickname = s.get('author', {}).get('nickname') or nickname
+
+                                stories.append({
+                                    "id": s_id,
+                                    "url": s_url,
+                                    "title": s.get('title') or (f"Historia en Foto de @{username}" if is_image else f"Historia de @{username}"),
+                                    "thumbnail": s_cover,
+                                    "duration": s_dur_str,
+                                    "views": format_count_helper(s.get('play_count', 0)),
+                                    "likes": format_count_helper(s.get('digg_count', 0)),
+                                    "created_at": s.get('create_time', 0),
+                                    "is_story": True,
+                                    "is_image": is_image,
+                                    "images": images,
+                                    "download_url": dl_url
+                                })
+
+                            has_more = data_obj.get('hasMore', False)
+                            cursor = data_obj.get('cursor', 0)
+                            if not items or not cursor:
+                                break
+                        else:
+                            break
+                    else:
+                        break
         except Exception as e:
-            print(f"Error fetching stories for {username}: {e}")
+            print(f"Error fetching stories with pagination for {username}: {e}")
             
     res = {
         "success": True,

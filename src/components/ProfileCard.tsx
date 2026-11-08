@@ -19,7 +19,8 @@ import {
   RotateCcw,
   CheckCircle2,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  Image as ImageIcon
 } from 'lucide-react';
 
 export interface ProfileStoryItem {
@@ -32,6 +33,8 @@ export interface ProfileStoryItem {
   likes?: string;
   created_at?: number;
   is_story?: boolean;
+  is_image?: boolean;
+  images?: string[];
   download_url?: string;
 }
 
@@ -107,10 +110,14 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
   const downloadStoryDirectly = (story: ProfileStoryItem, storyIdx: number) => {
     if (!story.download_url) return;
     setDownloadingId(story.id);
-    setToastMessage({ text: `⬇️ Iniciando descarga de Historia ${storyIdx} en HD...`, type: 'info' });
+    const isImage = Boolean(story.is_image || (story.images && story.images.length > 0));
+    const ext = isImage ? 'jpg' : 'mp4';
+    const typeLabel = isImage ? 'Foto' : 'Video';
+
+    setToastMessage({ text: `⬇️ Iniciando descarga de Historia ${storyIdx} (${typeLabel} HD)...`, type: 'info' });
 
     try {
-      const filename = `historia_${data.username}_${storyIdx}.mp4`;
+      const filename = `historia_${data.username}_${storyIdx}.${ext}`;
       const proxyUrl = `/api/proxy?url=${encodeURIComponent(story.download_url)}&filename=${encodeURIComponent(filename)}`;
       const link = document.createElement('a');
       link.href = proxyUrl;
@@ -120,7 +127,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
       document.body.removeChild(link);
 
       setTimeout(() => {
-        setToastMessage({ text: `✅ ¡Historia ${storyIdx} descargada con éxito! Revisa tus descargas.`, type: 'success' });
+        setToastMessage({ text: `✅ ¡Historia ${storyIdx} (${typeLabel} HD) descargada con éxito!`, type: 'success' });
         setDownloadingId(null);
       }, 1500);
 
@@ -144,8 +151,11 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
 
     activeList.forEach((story, idx) => {
       setTimeout(() => {
-        const filename = `historia_${data.username}_${idx + 1}.mp4`;
-        const proxyUrl = `/api/proxy?url=${encodeURIComponent(story.download_url || story.url)}&filename=${encodeURIComponent(filename)}`;
+        const isImage = Boolean(story.is_image || (story.images && story.images.length > 0));
+        const ext = isImage ? 'jpg' : 'mp4';
+        const filename = `historia_${data.username}_${idx + 1}.${ext}`;
+        const targetUrl = story.download_url || (isImage && story.images?.[0]) || story.url;
+        const proxyUrl = `/api/proxy?url=${encodeURIComponent(targetUrl)}&filename=${encodeURIComponent(filename)}`;
         const link = document.createElement('a');
         link.href = proxyUrl;
         link.setAttribute('download', filename);
@@ -156,7 +166,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
     });
 
     setTimeout(() => {
-      setToastMessage({ text: `✅ ¡Todas las historias de @${data.username} están descargándose!`, type: 'success' });
+      setToastMessage({ text: `✅ ¡Todas las ${activeList.length} historias de @${data.username} están descargándose!`, type: 'success' });
       setTimeout(() => setToastMessage(null), 5000);
     }, activeList.length * 1200 + 500);
   };
@@ -537,7 +547,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                           {activeStories.length > 1 ? `Historia ${idx + 1}` : 'Historia'}
                         </span>
                         <span className="text-[10px] text-pink-500 dark:text-pink-400 font-semibold block">
-                          {isDownloading ? 'Descargando...' : 'Descargar HD'}
+                          {isDownloading ? 'Descargando...' : (story.is_image ? 'Foto HD' : 'Video HD')}
                         </span>
                       </div>
                     </button>
@@ -801,8 +811,9 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                       )}
 
                       {/* Badge HISTORIA # */}
-                      <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-gradient-to-r from-pink-500 to-rose-600 font-extrabold text-[10px] text-white shadow-md">
-                        HISTORIA #{idx + 1}
+                      <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-gradient-to-r from-pink-500 to-rose-600 font-extrabold text-[10px] text-white shadow-md flex items-center gap-1">
+                        {story.is_image ? <ImageIcon className="w-3 h-3" /> : <Film className="w-3 h-3" />}
+                        <span>{story.is_image ? 'FOTO' : 'VIDEO'} #{idx + 1}</span>
                       </span>
 
                       {/* Tiempo relativo */}

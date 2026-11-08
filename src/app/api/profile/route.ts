@@ -37,33 +37,67 @@ async function fetchProfileFromTikWM(username: string, start: number = 1, count:
       };
     });
 
-    // 2. Historias activas si es la primera página
+    // 2. Historias activas completas (paginación con cursor y soporte para fotos y videos)
     let stories: any[] = [];
     if (start === 1) {
       try {
-        const storyRes = await fetch(`https://tikwm.com/api/user/story?unique_id=${encodeURIComponent(username)}`);
-        if (storyRes.ok) {
+        let cursor = 0;
+        let hasMoreStories = true;
+        let pagesCount = 0;
+        const seenStoryIds = new Set<string>();
+
+        while (hasMoreStories && pagesCount < 6) {
+          pagesCount++;
+          const storyUrl = cursor
+            ? `https://tikwm.com/api/user/story?unique_id=${encodeURIComponent(username)}&cursor=${cursor}`
+            : `https://tikwm.com/api/user/story?unique_id=${encodeURIComponent(username)}`;
+
+          const storyRes = await fetch(storyUrl);
+          if (!storyRes.ok) break;
           const storyData = await storyRes.json();
-          if (storyData.code === 0 && storyData.data?.videos) {
-            stories = storyData.data.videos.map((s: any) => {
-              const sDur = s.duration || 15;
-              return {
-                id: s.video_id,
-                url: `https://www.tiktok.com/@${username}/video/${s.video_id}`,
-                title: s.title || `Historia de @${username}`,
-                thumbnail: s.cover || s.origin_cover || '',
-                duration: `${Math.floor(sDur / 60)}:${(sDur % 60).toString().padStart(2, '0')}`,
-                views: formatCountHelper(s.play_count),
-                likes: formatCountHelper(s.digg_count),
-                created_at: s.create_time || 0,
-                is_story: true,
-                download_url: s.play ? (s.play.startsWith('http') ? s.play : `https://tikwm.com${s.play}`) : ''
-              };
+          if (storyData.code !== 0 || !storyData.data) break;
+
+          const rawList = storyData.data.videos || [];
+          for (const s of rawList) {
+            const sId = s.video_id;
+            if (!sId || seenStoryIds.has(sId)) continue;
+            seenStoryIds.add(sId);
+
+            const images: string[] = s.images || [];
+            const isImage = images.length > 0 || s.biz_tag === 'tt_photomode_story';
+            const sDur = s.duration || 0;
+            const durStr = isImage ? 'Foto' : (sDur ? `${Math.floor(sDur / 60)}:${(sDur % 60).toString().padStart(2, '0')}` : '0:15');
+            const cover = (isImage && images.length > 0 ? images[0] : null) || s.cover || s.origin_cover || '';
+
+            let downloadUrl = '';
+            if (isImage && images.length > 0) {
+              downloadUrl = images[0];
+            } else if (s.play) {
+              downloadUrl = s.play.startsWith('http') ? s.play : `https://tikwm.com${s.play}`;
+            }
+
+            stories.push({
+              id: sId,
+              url: isImage ? `https://www.tiktok.com/@${username}/photo/${sId}` : `https://www.tiktok.com/@${username}/video/${sId}`,
+              title: s.title || (isImage ? `Historia en Foto de @${username}` : `Historia de @${username}`),
+              thumbnail: cover,
+              duration: durStr,
+              views: formatCountHelper(s.play_count),
+              likes: formatCountHelper(s.digg_count),
+              created_at: s.create_time || 0,
+              is_story: true,
+              is_image: isImage,
+              images: images,
+              download_url: downloadUrl
             });
           }
+
+          hasMoreStories = Boolean(storyData.data.hasMore);
+          cursor = storyData.data.cursor || 0;
+          if (rawList.length === 0 || !cursor) break;
         }
       } catch (e) {
-        console.error('TikWM story fallback error:', e);
+        console.error('TikWM story pagination error:', e);
       }
     }
 
