@@ -16,7 +16,7 @@ import {
   Film
 } from 'lucide-react';
 import VideoCard from '@/components/VideoCard';
-import ProfileCard, { ProfileData } from '@/components/ProfileCard';
+import ProfileCard, { ProfileData, ProfileStoryItem, ProfileVideoItem } from '@/components/ProfileCard';
 import Footer from '@/components/Footer';
 
 // Custom SVG Icons for Brands
@@ -270,6 +270,9 @@ export default function Home() {
           setResultData(data);
           setResultOriginalUrl(targetUrl);
           setError(null);
+          if (typeof window !== 'undefined') {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
         } else if (data.isProfile && data.username) {
           // El enlace redirigió a un perfil de TikTok
           clearInterval(progressInterval);
@@ -479,27 +482,52 @@ export default function Home() {
           </div>
         )}
 
-        {/* Si hay perfil cargado -> Tarjeta de Perfil Estilo Mockup */}
-        {profileData && !loading && (
+        {/* Si hay perfil cargado -> Tarjeta de Perfil Estilo Mockup (se oculta cuando hay un video en reproducción/descarga para enfoque total) */}
+        {profileData && !resultData && !loading && (
           <div className="w-full mb-10">
             <ProfileCard
               data={profileData}
-              onSelectVideo={(videoUrl) => {
-                processUrl(videoUrl, true);
+              onSelectVideo={(videoItem) => {
+                if (typeof videoItem !== 'string' && (videoItem as any).is_story) {
+                  const story = videoItem as ProfileStoryItem;
+                  setResultData({
+                    platform: 'tiktok',
+                    title: story.title || `Historia de @${profileData.username}`,
+                    thumbnail: story.thumbnail || profileData.avatar,
+                    videoUrl: story.download_url || story.url,
+                    audioUrl: '',
+                    mediaType: 'story',
+                    formatLabel: 'Historia de TikTok (24h)',
+                    isStory: true,
+                    author: profileData.nickname || `@${profileData.username}`
+                  });
+                  setResultOriginalUrl(story.url);
+                  if (typeof window !== 'undefined') {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }
+                } else {
+                  const urlToProcess = typeof videoItem === 'string' ? videoItem : videoItem.url;
+                  processUrl(urlToProcess, true);
+                }
               }}
               onBack={() => setProfileData(null)}
             />
           </div>
         )}
 
-        {/* Si hay un video individual seleccionado */}
+        {/* Si hay un video o historia individual seleccionado */}
         {resultData && !loading && (
           <div className="w-full mb-10 space-y-4">
             {profileData && (
               <button
                 type="button"
-                onClick={() => setResultData(null)}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-400 font-semibold text-xs border border-slate-700 shadow-sm transition-all"
+                onClick={() => {
+                  setResultData(null);
+                  if (typeof window !== 'undefined') {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }
+                }}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-sky-400 hover:text-sky-300 font-bold text-xs border border-slate-700 shadow-md transition-all active:scale-95"
               >
                 <ArrowLeft className="w-4 h-4" />
                 <span>← Volver a las publicaciones de @{profileData.username}</span>

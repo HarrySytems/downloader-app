@@ -123,6 +123,31 @@ async def fetch_user_meta(uname: str):
                     }
     except Exception as e:
         print(f"fetch_user_meta error for @{uname}: {e}")
+        
+    # Fallback si TikTok bloqueó el scraping directo de HTML
+    try:
+        async with httpx.AsyncClient(timeout=6.0) as tw_client:
+            tw_info = await tw_client.get(f"https://tikwm.com/api/user/info?unique_id={uname}")
+            if tw_info.status_code == 200:
+                tw_json = tw_info.json()
+                if tw_json.get("code") == 0 and tw_json.get("data", {}).get("user"):
+                    u = tw_json["data"]["user"]
+                    s = tw_json["data"].get("stats", {})
+                    return {
+                        "nickname": u.get("nickname") or uname,
+                        "avatar": u.get("avatarLarger") or u.get("avatarMedium") or "",
+                        "signature": u.get("signature") or "",
+                        "verified": u.get("verified", False),
+                        "followers": s.get("followerCount") or u.get("follower_count", 0),
+                        "following": s.get("followingCount") or u.get("following_count", 0),
+                        "likes": s.get("heartCount") or u.get("heart_count", 0),
+                        "total_videos": s.get("videoCount") or u.get("video_count", 0),
+                        "sec_uid": u.get("secUid", ""),
+                        "is_private": False
+                    }
+    except Exception as tw_e:
+        print(f"fetch_user_meta tikwm fallback error for @{uname}: {tw_e}")
+        
     return {}
 
 # ----------------- RUTA CLÁSICA (DESCARGA LOCAL) -----------------
@@ -320,11 +345,11 @@ async def extract_info_stream(req: ExtractRequest, background_tasks: BackgroundT
                             d = tw_data["data"]
                             images = d.get("images") or []
                             live_images = d.get("live_images") or []
-                            has_live = any(bool(x) for x in live_images)
-                            is_gallery = len(images) > 0 and not has_live
+                            has_live = any(bool(x) for x in live_images) or (len(images) == 1 and bool(d.get("play") or d.get("hdplay")))
+                            is_gallery = len(images) > 1 and not has_live
                             
                             media_type = "live_photo" if has_live else ("gallery" if is_gallery else ("story" if is_story else "video"))
-                            format_label = "Foto Animada (Live Photo)" if has_live else (f"Galería de Fotos ({len(images)})" if is_gallery else ("Historia de TikTok" if is_story else "Video HD"))
+                            format_label = "Foto Animada (Live Photo · 3s)" if has_live else (f"Galería de Fotos ({len(images)})" if is_gallery else ("Historia de TikTok" if is_story else "Video HD"))
                             
                             v_url = (live_images[0] if has_live and live_images[0] else None) or d.get("hdplay") or d.get("play")
                             if v_url:
@@ -462,16 +487,39 @@ async def extract_profile_endpoint(req: ProfileRequest):
                 "next_start": 0
             }
         # Si falló, intentar con sec_uid si se obtuvo
-        sec_uid = user_meta.get("sec_uid")
-        if sec_uid and ("secondary user id" in err or "404" in err):
-            try:
-                info = await asyncio.to_thread(get_info, f"tiktokuser:{sec_uid}")
-            except Exception:
-                raise HTTPException(status_code=400, detail=f"El perfil @{username} no existe, es privado o no tiene publicaciones públicas.")
-        elif "secondary user id" in err or "not found" in err or "404" in err:
+        # Fallback ultra-confiable a TikWM API para perfiles
+        try:
+            print(f"yt-dlp profile failed for @{username} ({err}), attempting TikWM fallback...")
+            async with httpx.AsyncClient(timeout=10.0) as tw_client:
+                tw_res = await tw_client.get(f"https://tikwm.com/api/user/posts?unique_id={username}&count={count}")
+                if tw_res.status_code == 200:
+                    tw_data = tw_res.json()
+                    if tw_data.get("code") == 0 and tw_data.get("data"):
+                        tw_vids = tw_data["data"].get("videos") or []
+                        entries = []
+                        for tv in tw_vids:
+                            entries.append({
+                                'id': tv.get('video_id'),
+                                'url': f"https://www.tiktok.com/@{username}/video/{tv.get('video_id')}",
+                                'title': tv.get('title') or f"Video de @{username}",
+                                'thumbnails': [{'id': 'cover', 'url': tv.get('cover') or tv.get('origin_cover') or ''}],
+                                'duration': tv.get('duration') or 0,
+                                'view_count': tv.get('play_count') or 0,
+                                'like_count': tv.get('digg_count') or 0,
+                                'timestamp': tv.get('create_time') or 0
+                            })
+                        info = {'entries': entries}
+                    else:
+                        raise HTTPException(status_code=400, detail=f"El perfil @{username} no existe, es privado o no tiene publicaciones públicas.")
+                else:
+                    raise HTTPException(status_code=400, detail=f"El perfil @{username} no existe, es privado o no tiene publicaciones públicas.")
+        except HTTPException as he:
+            raise he
+        except Exception as tw_e:
+            print(f"TikWM profile fallback error: {tw_e}")
             raise HTTPException(status_code=400, detail=f"El perfil @{username} no existe, es privado o no tiene publicaciones públicas.")
-        else:
-            raise HTTPException(status_code=400, detail=f"No se pudo cargar el perfil: {str(e)}")
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
         

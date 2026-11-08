@@ -71,7 +71,7 @@ export interface ProfileData {
 
 interface ProfileCardProps {
   data: ProfileData;
-  onSelectVideo: (videoUrl: string) => void;
+  onSelectVideo: (item: ProfileVideoItem | ProfileStoryItem | string) => void;
   onBack: () => void;
 }
 
@@ -130,7 +130,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
 
   const handleVideoClick = (video: ProfileVideoItem | ProfileStoryItem) => {
     setDownloadingId(video.id);
-    onSelectVideo(video.url);
+    onSelectVideo(video);
   };
 
   // Cargar siguiente lote de 35 videos del servidor sin salir de la página

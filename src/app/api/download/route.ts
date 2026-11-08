@@ -141,44 +141,49 @@ export async function POST(request: Request) {
         const data = tikwmData;
         const images = (data.images || []).map(resolveUrl);
         const liveImages = (data.live_images || []).map((p: any) => resolveUrl(p));
-        const hasAnyLive = liveImages.some((p: string) => Boolean(p));
-        const primaryLiveVideo = liveImages.find((p: string) => Boolean(p)) || '';
+        const hasLiveImagesArray = liveImages.some((p: string) => Boolean(p));
         const authorName = data.author?.nickname || data.author?.unique_id || '';
+        const playUrl = resolveUrl(data.hdplay || data.play || data.wmplay);
+
+        // Detectar si es una FOTO ANIMADA (Live Photo / clip corto de 2-3s con movimiento):
+        // En TikTok, si tiene live_images o si tiene exactamente 1 foto y trae video animado (play), es una Foto Animada
+        const isLivePhoto = hasLiveImagesArray || (images.length === 1 && Boolean(playUrl));
+        const primaryLiveVideo = liveImages.find((p: string) => Boolean(p)) || playUrl;
 
         // CASO 1: FOTO ANIMADA (Live Photo / clip corto de 3s en movimiento)
-        if (hasAnyLive) {
+        if (isLivePhoto) {
           return NextResponse.json({
             success: true,
             platform,
             title: data.title || 'Foto Animada de TikTok',
             thumbnail: data.cover || images[0] || '',
-            videoUrl: primaryLiveVideo, // Video MP4 animado de 3s
+            videoUrl: primaryLiveVideo, // Video MP4 animado original
             audioUrl: resolveUrl(data.music),
             images: images,
-            liveImages: liveImages,
+            liveImages: liveImages.length > 0 ? liveImages : [primaryLiveVideo],
             isLivePhoto: true,
             isStory: isStoryUrl,
             mediaType: 'live_photo',
-            formatLabel: 'Foto Animada (Live Photo)',
+            formatLabel: 'Foto Animada (Live Photo · 3s)',
             author: authorName
           });
         }
 
-        // CASO 2: GALERÍA DE FOTOS (Slideshow tradicional de múltiples fotos estáticas)
-        if (images.length > 0) {
+        // CASO 2: GALERÍA DE FOTOS (Slideshow de 2 o más fotos)
+        if (images.length > 1) {
           return NextResponse.json({
             success: true,
             platform,
             title: data.title || 'Galería de fotos de TikTok',
             thumbnail: data.cover || images[0] || '',
-            videoUrl: resolveUrl(data.play || data.wmplay), // Video compilado de la galería con música
+            videoUrl: playUrl, // Video compilado de la galería con música
             audioUrl: resolveUrl(data.music),
             images: images,
             liveImages: [],
             isLivePhoto: false,
             isStory: isStoryUrl,
             mediaType: 'gallery',
-            formatLabel: `Galería de Fotos (${images.length})`,
+            formatLabel: `Galería de Fotos (${images.length} fotos)`,
             author: authorName
           });
         }
@@ -231,6 +236,22 @@ export async function POST(request: Request) {
         
       } catch (err) {
         console.error('Backend extraction error:', err);
+        if (tikwmData && (tikwmData.hdplay || tikwmData.play)) {
+          const vUrl = resolveUrl(tikwmData.hdplay || tikwmData.play);
+          return NextResponse.json({
+            success: true,
+            platform,
+            title: tikwmData.title || (isStoryUrl ? 'Historia de TikTok' : 'Video de TikTok'),
+            thumbnail: tikwmData.cover || '',
+            videoUrl: vUrl,
+            audioUrl: resolveUrl(tikwmData.music),
+            author: tikwmData.author?.nickname || tikwmData.author?.unique_id || '',
+            mediaType: isStoryUrl ? 'story' : 'video',
+            formatLabel: isStoryUrl ? 'Historia de TikTok (24h)' : 'Video HD',
+            isStory: isStoryUrl,
+            duration: tikwmData.duration || 0
+          });
+        }
         return NextResponse.json(
           { success: false, error: 'El servidor de descargas está ocupado. Intenta de nuevo en unos segundos.' },
           { status: 500 }
