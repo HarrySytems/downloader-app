@@ -202,6 +202,6 @@ export async function POST(request: Request) {
 
   } catch (err: any) {
     console.error('Global profile route error:', err);
-    return NextResponse.json({ success: false, error: 'Ocurrió un error interno en el servidor.' }, { status: 500 });
+    return NextResponse.json({ success: false, error: err?.message || 'Ocurrió un error interno en el servidor.' }, { status: 500 });
   }
 }
