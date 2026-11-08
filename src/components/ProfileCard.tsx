@@ -18,7 +18,8 @@ import {
   History,
   RotateCcw,
   CheckCircle2,
-  Loader2
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 
 export interface ProfileStoryItem {
@@ -78,6 +79,7 @@ interface ProfileCardProps {
 export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCardProps) {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'videos' | 'stories'>('videos');
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
   
   // Estado de videos dinámicos con paginación progresiva del servidor
   const [videos, setVideos] = useState<ProfileVideoItem[]>(data.videos || []);
@@ -100,6 +102,64 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
     setSortFilter('recent');
     setLoadError(null);
   }, [data]);
+
+  // Descarga directa e inmediata de historia sin cerrar la vista de perfil
+  const downloadStoryDirectly = (story: ProfileStoryItem, storyIdx: number) => {
+    if (!story.download_url) return;
+    setDownloadingId(story.id);
+    setToastMessage({ text: `⬇️ Iniciando descarga de Historia ${storyIdx} en HD...`, type: 'info' });
+
+    try {
+      const filename = `historia_${data.username}_${storyIdx}.mp4`;
+      const proxyUrl = `/api/proxy?url=${encodeURIComponent(story.download_url)}&filename=${encodeURIComponent(filename)}`;
+      const link = document.createElement('a');
+      link.href = proxyUrl;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      setTimeout(() => {
+        setToastMessage({ text: `✅ ¡Historia ${storyIdx} descargada con éxito! Revisa tus descargas.`, type: 'success' });
+        setDownloadingId(null);
+      }, 1500);
+
+      setTimeout(() => {
+        setToastMessage(null);
+      }, 5000);
+    } catch (err) {
+      console.error('Download error:', err);
+      setToastMessage({ text: 'Error al iniciar la descarga de la historia.', type: 'error' });
+      setDownloadingId(null);
+      setTimeout(() => setToastMessage(null), 4000);
+    }
+  };
+
+  // Descargar todas las historias activas en secuencia
+  const downloadAllStories = () => {
+    const activeList = data.stories || [];
+    if (activeList.length === 0) return;
+
+    setToastMessage({ text: `⬇️ Descargando las ${activeList.length} historias activas...`, type: 'info' });
+
+    activeList.forEach((story, idx) => {
+      setTimeout(() => {
+        const filename = `historia_${data.username}_${idx + 1}.mp4`;
+        const proxyUrl = `/api/proxy?url=${encodeURIComponent(story.download_url || story.url)}&filename=${encodeURIComponent(filename)}`;
+        const link = document.createElement('a');
+        link.href = proxyUrl;
+        link.setAttribute('download', filename);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }, idx * 1200);
+    });
+
+    setTimeout(() => {
+      setToastMessage({ text: `✅ ¡Todas las historias de @${data.username} están descargándose!`, type: 'success' });
+      setTimeout(() => setToastMessage(null), 5000);
+    }, activeList.length * 1200 + 500);
+  };
 
   // Referencia y estados para el carrusel horizontal en escritorio
   const storyRowRef = useRef<HTMLDivElement>(null);
@@ -129,24 +189,14 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
   };
 
   const handleVideoClick = (video: ProfileVideoItem | ProfileStoryItem, storyIdx?: number) => {
-    setDownloadingId(video.id);
     const storyItem = video as ProfileStoryItem;
     if (storyItem.is_story && storyItem.download_url) {
-      // Descarga directa e inmediata del archivo MP4 en el navegador
-      try {
-        const index = storyIdx ?? 1;
-        const filename = `historia_${data.username}_${index}.mp4`;
-        const proxyUrl = `/api/proxy?url=${encodeURIComponent(storyItem.download_url)}&filename=${encodeURIComponent(filename)}`;
-        const link = document.createElement('a');
-        link.href = proxyUrl;
-        link.setAttribute('download', filename);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      } catch (err) {
-        console.error('Auto-download error:', err);
-      }
+      // Descarga directa sin salir del perfil
+      downloadStoryDirectly(storyItem, storyIdx ?? 1);
+      return;
     }
+    // Para publicaciones normales (videos/fotos), abrir vista detallada de descarga
+    setDownloadingId(video.id);
     onSelectVideo(video);
   };
 
@@ -376,7 +426,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
             type="button"
             onClick={() => {
               if (hasStories) {
-                handleVideoClick(activeStories[0]);
+                downloadAllStories();
               } else if (videos.length > 0) {
                 handleVideoClick(videos[0]);
               }
@@ -384,7 +434,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
             className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold text-sm text-white bg-sky-500 hover:bg-sky-400 shadow-lg shadow-sky-500/30 transition-all duration-200 active:scale-95"
           >
             <Download className="w-4 h-4" />
-            <span>Descargar perfil</span>
+            <span>{hasStories ? `Descargar historias (${activeStories.length})` : 'Descargar perfil'}</span>
           </button>
         </div>
 
@@ -487,7 +537,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                           {activeStories.length > 1 ? `Historia ${idx + 1}` : 'Historia'}
                         </span>
                         <span className="text-[10px] text-pink-500 dark:text-pink-400 font-semibold block">
-                          {isDownloading ? 'Descargando...' : (timeAgo || story.duration || 'Descargar')}
+                          {isDownloading ? 'Descargando...' : 'Descargar HD'}
                         </span>
                       </div>
                     </button>
@@ -708,9 +758,24 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
           ) : (
             /* CUADRÍCULA DE HISTORIAS */
             <div className="space-y-6">
+              {/* Botón para descargar todas las historias de una vez */}
+              {activeStories.length > 1 && (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={downloadAllStories}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-pink-500/10 hover:bg-pink-500 text-pink-500 hover:text-white border border-pink-500/30 text-xs font-bold transition-all shadow-sm active:scale-95"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Descargar todas las historias ({activeStories.length})</span>
+                  </button>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 sm:gap-4.5">
                 {paginatedStories.map((story, idx) => {
                   const timeAgo = formatTimeAgo(story.created_at);
+                  const isDownloading = downloadingId === story.id;
                   return (
                     <div
                       key={story.id}
@@ -782,6 +847,22 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
             </div>
           )}
         </>
+      )}
+
+      {/* Toast Flotante de Descarga de Historias */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3.5 rounded-2xl bg-slate-900/95 border border-slate-700 text-white shadow-2xl backdrop-blur-md">
+          {toastMessage.type === 'info' && (
+            <div className="w-4 h-4 border-2 border-pink-500 border-t-transparent rounded-full animate-spin shrink-0" />
+          )}
+          {toastMessage.type === 'success' && (
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+          )}
+          {toastMessage.type === 'error' && (
+            <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+          )}
+          <span className="text-sm font-semibold">{toastMessage.text}</span>
+        </div>
       )}
     </div>
   );

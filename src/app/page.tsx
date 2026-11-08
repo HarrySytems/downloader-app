@@ -11,6 +11,7 @@ import {
   Moon,
   Search,
   ArrowLeft,
+  ArrowRight,
   Sparkles,
   Layers,
   Film
@@ -38,6 +39,7 @@ export default function Home() {
   const [detectedPlatform, setDetectedPlatform] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [suggestion, setSuggestion] = useState<string | null>(null);
   const [resultData, setResultData] = useState<VideoData | null>(null);
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [resultOriginalUrl, setResultOriginalUrl] = useState('');
@@ -152,6 +154,7 @@ export default function Home() {
   const handleClear = () => {
     setUrl('');
     setError(null);
+    setSuggestion(null);
     setResultData(null);
     setProfileData(null);
   };
@@ -201,6 +204,7 @@ export default function Home() {
 
     setLoading(true);
     setError(null);
+    setSuggestion(null);
     
     // Si no se pide mantener el perfil en memoria, limpiar
     if (!keepProfile) {
@@ -242,9 +246,11 @@ export default function Home() {
           setProfileData(data);
           setResultData(null);
           setError(null);
+          setSuggestion(null);
         } else {
           setProfileData(null);
           setError(data.error || 'No se pudo cargar el perfil de TikTok. Revisa el nombre de usuario.');
+          setSuggestion(data.suggestion || null);
         }
       } else {
         const response = await fetch('/api/download', {
@@ -442,11 +448,29 @@ export default function Home() {
           </div>
         )}
 
-        {/* Alerta de Error Clara y Limpia */}
+        {/* Alerta de Error Clara y Limpia con Sugerencia Inteligente */}
         {error && (
-          <div className="w-full mb-6 flex items-start gap-3 p-4 rounded-2xl border border-red-500/40 bg-red-950/30 text-red-200 text-sm shadow-lg backdrop-blur-sm">
-            <AlertCircle className="w-5 h-5 shrink-0 text-red-400 mt-0.5" />
-            <p className="leading-relaxed font-medium">{error}</p>
+          <div className="w-full mb-6 p-4 rounded-2xl border border-red-500/40 bg-red-950/30 text-red-200 text-sm shadow-lg backdrop-blur-sm space-y-3">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 shrink-0 text-red-400 mt-0.5" />
+              <p className="leading-relaxed font-medium">{error}</p>
+            </div>
+            {suggestion && (
+              <div className="pt-2 border-t border-red-500/20 flex flex-wrap items-center gap-3">
+                <span className="text-xs text-slate-300">¿Quisiste decir?</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUrl(`@${suggestion}`);
+                    processUrl(`@${suggestion}`);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs transition-all shadow-md active:scale-95"
+                >
+                  <span>Probar con @{suggestion}</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
           </div>
         )}
 

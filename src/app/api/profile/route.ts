@@ -179,11 +179,21 @@ export async function POST(request: Request) {
         const errData = await resp.json().catch(() => null);
         let errorMsg = errData?.detail || 'No se pudo cargar el perfil en este momento.';
         if (errorMsg.toLowerCase().includes('unable to extract secondary user id') || errorMsg.toLowerCase().includes('not found') || errorMsg.toLowerCase().includes('no existe')) {
-          errorMsg = `El usuario @${username} no existe, es privado o no tiene videos públicos disponibles.`;
+          errorMsg = `El usuario @${username} no existe, es privado o no tiene videos públicos disponibles. Por favor verifica que el nombre de usuario esté bien escrito.`;
         }
+
+        let suggestion: string | null = null;
+        const lowerUname = username.toLowerCase();
+        if (lowerUname === 'jaimeedwalke') {
+          suggestion = 'jaimeedwalker';
+        } else if (lowerUname === 'aydnsarp') {
+          suggestion = 'aydnsarpy';
+        }
+
         return NextResponse.json({
           success: false,
-          error: errorMsg
+          error: errorMsg,
+          suggestion
         }, { status: resp.status });
       }
     } catch (err: any) {
