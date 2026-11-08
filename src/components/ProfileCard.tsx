@@ -128,8 +128,25 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
     }
   };
 
-  const handleVideoClick = (video: ProfileVideoItem | ProfileStoryItem) => {
+  const handleVideoClick = (video: ProfileVideoItem | ProfileStoryItem, storyIdx?: number) => {
     setDownloadingId(video.id);
+    const storyItem = video as ProfileStoryItem;
+    if (storyItem.is_story && storyItem.download_url) {
+      // Descarga directa e inmediata del archivo MP4 en el navegador
+      try {
+        const index = storyIdx ?? 1;
+        const filename = `historia_${data.username}_${index}.mp4`;
+        const proxyUrl = `/api/proxy?url=${encodeURIComponent(storyItem.download_url)}&filename=${encodeURIComponent(filename)}`;
+        const link = document.createElement('a');
+        link.href = proxyUrl;
+        link.setAttribute('download', filename);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (err) {
+        console.error('Auto-download error:', err);
+      }
+    }
     onSelectVideo(video);
   };
 
@@ -429,12 +446,14 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
               >
                 {activeStories.map((story, idx) => {
                   const timeAgo = formatTimeAgo(story.created_at);
+                  const isDownloading = downloadingId === story.id;
                   return (
                     <button
                       key={story.id}
                       type="button"
-                      onClick={() => handleVideoClick(story)}
+                      onClick={() => handleVideoClick(story, idx + 1)}
                       className="flex flex-col items-center gap-2 shrink-0 group focus:outline-none"
+                      title={`Toca para descargar Historia ${idx + 1} en HD`}
                     >
                       <div className="relative p-[2.5px] rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 group-hover:scale-105 group-active:scale-95 transition-transform duration-200 shadow-md">
                         <div className="p-[2px] bg-white dark:bg-[#0b1328] rounded-full">
@@ -448,18 +467,27 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                                 if (data.avatar) (e.target as HTMLImageElement).src = data.avatar;
                               }}
                             />
-                            <div className="absolute inset-0 bg-black/25 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Play className="w-5 h-5 text-white fill-current drop-shadow-md" />
+                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Download className="w-6 h-6 text-white stroke-[2.5] drop-shadow-md" />
                             </div>
                           </div>
                         </div>
+
+                        {/* Indicador de descarga */}
+                        <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-pink-500 text-white flex items-center justify-center shadow-lg border-2 border-white dark:border-[#0b1328]">
+                          {isDownloading ? (
+                            <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <Download className="w-3 h-3 stroke-[2.5]" />
+                          )}
+                        </div>
                       </div>
                       <div className="text-center max-w-[80px]">
-                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate block group-hover:text-pink-500">
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate block group-hover:text-pink-500">
                           {activeStories.length > 1 ? `Historia ${idx + 1}` : 'Historia'}
                         </span>
-                        <span className="text-[10px] text-pink-500 dark:text-pink-400 font-medium block">
-                          {timeAgo || story.duration || '0:15'}
+                        <span className="text-[10px] text-pink-500 dark:text-pink-400 font-semibold block">
+                          {isDownloading ? 'Descargando...' : (timeAgo || story.duration || 'Descargar')}
                         </span>
                       </div>
                     </button>
@@ -686,7 +714,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                   return (
                     <div
                       key={story.id}
-                      onClick={() => handleVideoClick(story)}
+                      onClick={() => handleVideoClick(story, idx + 1)}
                       className="group relative aspect-[9/16] rounded-2xl overflow-hidden bg-slate-900 border-2 border-pink-500/80 hover:border-pink-400 transition-all duration-300 cursor-pointer shadow-md hover:shadow-xl hover:shadow-pink-500/10 hover:-translate-y-1"
                     >
                       {/* Miniatura */}

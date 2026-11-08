@@ -15,7 +15,7 @@ import {
   Layers,
   Film
 } from 'lucide-react';
-import VideoCard from '@/components/VideoCard';
+import VideoCard, { VideoData } from '@/components/VideoCard';
 import ProfileCard, { ProfileData, ProfileStoryItem, ProfileVideoItem } from '@/components/ProfileCard';
 import Footer from '@/components/Footer';
 
@@ -32,15 +32,6 @@ const XIcon = (props: React.SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
-interface VideoData {
-  platform: string;
-  title: string;
-  thumbnail?: string;
-  author?: string;
-  videoUrl?: string;
-  audioUrl?: string;
-  images?: string[];
-}
 
 export default function Home() {
   const [url, setUrl] = useState('');
