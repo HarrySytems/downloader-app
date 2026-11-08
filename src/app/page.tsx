@@ -593,7 +593,7 @@ export default function Home() {
 
       {/* Botón Flotante de Telegram */}
       <a
-        href="https://t.me/Avisodescarga_bot"
+        href="https://t.me/ByteDownloaderHD_bot"
         target="_blank"
         rel="noopener noreferrer"
         aria-label="Descargar con Bot de Telegram"
