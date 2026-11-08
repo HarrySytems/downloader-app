@@ -73,6 +73,17 @@ export default function Home() {
     if (typeof window !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
       setCanPaste(true);
     }
+
+    // 4. Notificar visita al bot de Telegram (1 vez por sesión para evitar spam)
+    if (typeof window !== 'undefined') {
+      try {
+        const visited = sessionStorage.getItem('bytedownloader_visited');
+        if (!visited) {
+          sessionStorage.setItem('bytedownloader_visited', '1');
+          fetch('/api/visit', { method: 'POST' }).catch(() => {});
+        }
+      } catch {}
+    }
   }, []);
 
   // Theme Toggler

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sendTelegramAlert, extractClientMeta } from '@/lib/telegram';
 
 export const maxDuration = 60;
 
@@ -189,6 +190,16 @@ export async function POST(request: Request) {
     if (!username) {
       return NextResponse.json({ success: false, error: 'Nombre de usuario inválido.' }, { status: 400 });
     }
+
+    // Enviar alerta a Telegram de forma asíncrona
+    try {
+      const clientMeta = extractClientMeta(request);
+      sendTelegramAlert({
+        action: 'BUSQUEDA_PERFIL',
+        detail: `@${username}`,
+        ...clientMeta
+      }).catch(() => {});
+    } catch {}
 
     // Consultar el motor backend en AWS EC2 (que corre sin bloqueos de cookies)
     const backendUrl = 'http://3.19.208.2:8000/api/profile';

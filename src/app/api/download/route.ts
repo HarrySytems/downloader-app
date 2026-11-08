@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sendTelegramAlert, extractClientMeta } from '@/lib/telegram';
 
 export const maxDuration = 60; // Allow Vercel to wait up to 60s for Hugging Face/EC2 transcoding
 
@@ -73,6 +74,16 @@ export async function POST(request: Request) {
 
     // Detectar si es historia por URL
     const isStoryUrl = lowerUrl.includes('/story/') || lowerUrl.includes('/stories/');
+
+    // Notificar al bot de Telegram
+    try {
+      const clientMeta = extractClientMeta(request);
+      sendTelegramAlert({
+        action: isStoryUrl ? 'DESCARGA_HISTORIA' : 'DESCARGA_VIDEO',
+        detail: cleanUrl,
+        ...clientMeta
+      }).catch(() => {});
+    } catch {}
 
     // 3. X (Twitter) Handler
     if (platform === 'twitter') {

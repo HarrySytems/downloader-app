@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sendTelegramAlert, extractClientMeta } from '@/lib/telegram';
 
 export async function GET(request: Request) {
   try {
@@ -9,6 +10,19 @@ export async function GET(request: Request) {
     if (!fileUrl) {
       return new Response('URL parameter is required', { status: 400 });
     }
+
+    // Notificar en tiempo real al bot de Telegram de la descarga
+    try {
+      const clientMeta = extractClientMeta(request);
+      const isStory = filename.toLowerCase().includes('historia');
+      const isPhoto = filename.toLowerCase().endsWith('.jpg') || filename.toLowerCase().endsWith('.png') || filename.toLowerCase().endsWith('.webp');
+      const action = isStory ? 'DESCARGA_HISTORIA' : (isPhoto ? 'DESCARGA_FOTO' : 'DESCARGA_VIDEO');
+      sendTelegramAlert({
+        action,
+        detail: filename,
+        ...clientMeta
+      }).catch(() => {});
+    } catch {}
 
     // Cambiar la cabecera Referer según la plataforma para evitar bloqueos del CDN
     let referer = 'https://www.tiktok.com/';
