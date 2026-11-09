@@ -1028,18 +1028,18 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                 </button>
               ) : (
                 <>
-                  {/* Para VIDEOS: Opción 1 - Video Full HD 1080p */}
+                  {/* Para VIDEOS: Opción 1 - Video MP4 Compatible H.264 */}
                   <button
                     type="button"
                     onClick={() => {
-                      triggerDownload(formatModalItem.downloadUrl || formatModalItem.url, `ByteDownloader_${data.username}_${formatModalItem.id}_HD.mp4`, 'Video MP4 Máxima Calidad HD (1080p)', false);
+                      triggerDownload(formatModalItem.downloadUrl || formatModalItem.url, `ByteDownloader_${data.username}_${formatModalItem.id}.mp4`, 'Video MP4 (H.264)', false);
                       setFormatModalItem(null);
                     }}
                     className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-sm flex items-center justify-between shadow-lg shadow-sky-500/25 transition-all active:scale-95"
                   >
                     <div className="flex items-center gap-2.5">
                       <Film className="w-4 h-4" />
-                      <span>Video MP4 Máxima Calidad (Full HD / 1080p)</span>
+                      <span>Descargar Video MP4 (H.264 Universal)</span>
                     </div>
                     <span className="text-[10px] uppercase font-black bg-white/20 px-2 py-0.5 rounded-full">Recomendado</span>
                   </button>

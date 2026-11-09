@@ -163,10 +163,9 @@ export async function POST(request: Request) {
           (data.music && rawPlay === data.music)
         );
 
-        // Selección de Calidad Máxima:
-        // Priorizar hdplay para obtener la resolución más alta (1080p / 720p Full HD)
-        const bestVideoUrl = isAudioPlay ? '' : resolveUrl(data.hdplay || data.play || data.wmplay);
-        const validVideoUrl = bestVideoUrl;
+        // Compatibilidad Total Windows Media Player:
+        // SIEMPRE priorizar 'play' (códec H.264 / avc1 universal) para reproducción nativa inmediata sin requerir la extensión de pago HEVC
+        const validVideoUrl = isAudioPlay ? '' : resolveUrl(data.play || data.wmplay || data.hdplay);
 
         // CASO 1: FOTO ESTÁTICA ÚNICA (Foto normal de historia o publicación)
         // Regla: una foto normal NO debe tener opción de MP3 ni de video
