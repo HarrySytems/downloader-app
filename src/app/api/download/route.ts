@@ -163,9 +163,10 @@ export async function POST(request: Request) {
           (data.music && rawPlay === data.music)
         );
 
-        // Para compatibilidad universal con Windows Media Player:
-        // En videos: PRIORIZAR 'play' (H.264 estándar) sobre 'hdplay' (que usa HEVC/H.265 y falla en Windows Media Player)
-        const validVideoUrl = isAudioPlay ? '' : resolveUrl(data.play || data.hdplay || data.wmplay);
+        // Selección de Calidad Máxima:
+        // Priorizar hdplay para obtener la resolución más alta (1080p / 720p Full HD)
+        const bestVideoUrl = isAudioPlay ? '' : resolveUrl(data.hdplay || data.play || data.wmplay);
+        const validVideoUrl = bestVideoUrl;
 
         // CASO 1: FOTO ESTÁTICA ÚNICA (Foto normal de historia o publicación)
         // Regla: una foto normal NO debe tener opción de MP3 ni de video
@@ -229,8 +230,21 @@ export async function POST(request: Request) {
           });
         }
 
-        // CASO 4: VIDEO DE TIKTOK (Extraído en H.264 universal para Windows Media Player)
+        // CASO 4: VIDEO DE TIKTOK (Extraído en máxima resolución disponible)
         if (validVideoUrl) {
+          const sizeBytes = Math.max(data.size || 0, data.hd_size || 0);
+          let label = 'Video Full HD (1080p)';
+          if (sizeBytes > 2_500_000) {
+            label = 'Video Full HD (1080p)';
+          } else if (sizeBytes > 1_400_000 || data.hdplay) {
+            label = 'Video HD (720p)';
+          } else {
+            label = 'Video Original TikTok (540p)';
+          }
+          if (isStoryUrl) {
+            label = `Historia (Máxima Calidad · 24h)`;
+          }
+
           return NextResponse.json({
             success: true,
             platform,
@@ -244,9 +258,10 @@ export async function POST(request: Request) {
             isLivePhoto: false,
             isStory: isStoryUrl,
             mediaType: isStoryUrl ? 'story' : 'video',
-            formatLabel: isStoryUrl ? 'Historia de TikTok (24h)' : 'Video Full HD (H.264)',
+            formatLabel: label,
             author: authorName,
-            duration: data.duration || 0
+            duration: data.duration || 0,
+            fileSize: sizeBytes
           });
         }
       }

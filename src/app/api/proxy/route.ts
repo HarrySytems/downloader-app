@@ -75,11 +75,15 @@ export async function GET(request: Request) {
               const d = twData.data;
               if (isMp3 && d.music) {
                 fileUrl = d.music.startsWith('http') ? d.music : `https://tikwm.com${d.music}`;
-              } else if (d.play) {
-                // PRIORIZAR PLAY QUE ES H.264 UNIVERSAL (hdplay es HEVC incompatible con Windows Media Player)
-                fileUrl = d.play.startsWith('http') ? d.play : `https://tikwm.com${d.play}`;
+              } else if (requestedFormat === 'hd' || lowerFilename.includes('_hd') || lowerFilename.includes('1080p') || (d.hdplay && d.hd_size && d.hd_size > d.size)) {
+                // PRIORIDAD MÁXIMA CALIDAD: stream HD / 1080p
+                const hdStream = d.hdplay || d.play;
+                fileUrl = hdStream.startsWith('http') ? hdStream : `https://tikwm.com${hdStream}`;
               } else if (d.hdplay) {
+                // Seleccionar HD disponible
                 fileUrl = d.hdplay.startsWith('http') ? d.hdplay : `https://tikwm.com${d.hdplay}`;
+              } else if (d.play) {
+                fileUrl = d.play.startsWith('http') ? d.play : `https://tikwm.com${d.play}`;
               }
             }
           }
