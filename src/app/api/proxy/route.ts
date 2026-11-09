@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sendTelegramAlert, extractClientMeta } from '@/lib/telegram';
+import sharp from 'sharp';
 
 export const maxDuration = 60;
 
@@ -13,6 +14,10 @@ export async function GET(request: Request) {
     if (!fileUrl) {
       return new Response('URL parameter is required', { status: 400 });
     }
+
+    const lowerFilename = filename.toLowerCase();
+    const isPhoto = lowerFilename.endsWith('.jpg') || lowerFilename.endsWith('.jpeg') || lowerFilename.endsWith('.png') || lowerFilename.endsWith('.webp');
+    const isMp3 = requestedFormat === 'mp3' || lowerFilename.endsWith('.mp3');
 
     // 1. Detectar si fileUrl es una página web de TikTok en vez de un stream directo
     const isTikTokWebUrl = (
@@ -35,30 +40,30 @@ export async function GET(request: Request) {
        !fileUrl.includes('tiktokcdn');
 
     if (isTikTokWebUrl) {
-      const isMp3 = requestedFormat === 'mp3' || filename.toLowerCase().endsWith('.mp3');
-      const isPhoto = filename.toLowerCase().endsWith('.jpg') || filename.toLowerCase().endsWith('.jpeg') || filename.toLowerCase().endsWith('.png');
-
-      try {
-        // Consultar motor backend EC2 para extracción nativa Full HD 1080p en H.264
-        const ec2Res = await fetch('http://3.19.208.2:8000/api/extract-stream', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: fileUrl, format_preference: 'h264' }),
-          cache: 'no-store'
-        });
-
-        if (ec2Res.ok) {
-          const ec2Data = await ec2Res.json();
-          if (ec2Data.success && ec2Data.videoUrl) {
-            fileUrl = ec2Data.videoUrl;
+      if (isPhoto) {
+        // Para fotos: extraer la imagen original de TikTok
+        try {
+          const twRes = await fetch('https://tikwm.com/api/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ url: fileUrl })
+          });
+          if (twRes.ok) {
+            const twData = await twRes.json();
+            if (twData.code === 0 && twData.data) {
+              const d = twData.data;
+              if (d.images && d.images.length > 0) {
+                fileUrl = d.images[0];
+              } else if (d.cover) {
+                fileUrl = d.cover;
+              }
+            }
           }
+        } catch (e) {
+          console.error('TikWM photo extract in proxy error:', e);
         }
-      } catch (e) {
-        console.error('EC2 extract in proxy error:', e);
-      }
-
-      // Si EC2 no devolvió URL directa, consultar TikWM con HD
-      if (fileUrl.includes('tiktok.com/@') || fileUrl.includes('/video/') || fileUrl.includes('/photo/')) {
+      } else {
+        // Para videos o audios: extraer stream compatible H.264
         try {
           const twRes = await fetch('https://tikwm.com/api/', {
             method: 'POST',
@@ -71,11 +76,11 @@ export async function GET(request: Request) {
               const d = twData.data;
               if (isMp3 && d.music) {
                 fileUrl = d.music.startsWith('http') ? d.music : `https://tikwm.com${d.music}`;
-              } else if (isPhoto && d.images && d.images.length > 0) {
-                fileUrl = d.images[0];
-              } else if (d.hdplay || d.play) {
-                const vid = d.hdplay || d.play;
-                fileUrl = vid.startsWith('http') ? vid : `https://tikwm.com${vid}`;
+              } else if (d.play) {
+                // PRIORIZAR PLAY QUE ES H.264 UNIVERSAL (hdplay es HEVC incompatible con Windows Media Player)
+                fileUrl = d.play.startsWith('http') ? d.play : `https://tikwm.com${d.play}`;
+              } else if (d.hdplay) {
+                fileUrl = d.hdplay.startsWith('http') ? d.hdplay : `https://tikwm.com${d.hdplay}`;
               }
             }
           }
@@ -88,10 +93,8 @@ export async function GET(request: Request) {
     // 2. Notificar en tiempo real al bot de Telegram de la descarga
     try {
       const clientMeta = extractClientMeta(request);
-      const isStory = filename.toLowerCase().includes('historia');
-      const isPhoto = filename.toLowerCase().endsWith('.jpg') || filename.toLowerCase().endsWith('.png') || filename.toLowerCase().endsWith('.webp');
-      const isAudio = filename.toLowerCase().endsWith('.mp3');
-      const action = isAudio ? 'DESCARGA_VIDEO' : (isStory ? 'DESCARGA_HISTORIA' : (isPhoto ? 'DESCARGA_FOTO' : 'DESCARGA_VIDEO'));
+      const isStory = lowerFilename.includes('historia');
+      const action = isMp3 ? 'DESCARGA_VIDEO' : (isStory ? 'DESCARGA_HISTORIA' : (isPhoto ? 'DESCARGA_FOTO' : 'DESCARGA_VIDEO'));
       sendTelegramAlert({
         action,
         detail: filename,
@@ -114,7 +117,7 @@ export async function GET(request: Request) {
 
     // Propagar Range si el cliente lo solicita (soporte de streaming en iPhone y Windows Media Player)
     const clientRange = request.headers.get('range');
-    if (clientRange) {
+    if (clientRange && !isPhoto) {
       fetchHeaders['Range'] = clientRange;
     }
 
@@ -124,7 +127,7 @@ export async function GET(request: Request) {
     });
 
     if (!response.ok && response.status !== 206) {
-      return new Response('Error retrieving the file from backend', { status: response.status });
+      return new Response('Error al recuperar el archivo multimedia', { status: response.status });
     }
 
     const upstreamContentType = (response.headers.get('Content-Type') || '').toLowerCase();
@@ -134,20 +137,52 @@ export async function GET(request: Request) {
       return new Response('El contenido no pudo ser extraído en formato de video/foto válido.', { status: 422 });
     }
 
+    // 4. Tratamiento de IMÁGENES: Convertir WebP a JPEG genuino para que Paint y visores de Windows lo abran al 100%
+    if (isPhoto) {
+      const arrayBuffer = await response.arrayBuffer();
+      const inputBuffer = Buffer.from(arrayBuffer);
+
+      let outputBuffer = inputBuffer;
+      let finalMime = 'image/jpeg';
+
+      if (lowerFilename.endsWith('.png')) {
+        try {
+          outputBuffer = await sharp(inputBuffer).png().toBuffer();
+          finalMime = 'image/png';
+        } catch {
+          outputBuffer = inputBuffer;
+        }
+      } else {
+        // Por defecto JPG (convierte WebP, AVIF o JPG a JPEG Baseline compatible con Paint)
+        try {
+          outputBuffer = await sharp(inputBuffer)
+            .jpeg({ quality: 95, mozjpeg: true })
+            .toBuffer();
+          finalMime = 'image/jpeg';
+        } catch (err) {
+          console.error('Sharp JPEG conversion error:', err);
+          outputBuffer = inputBuffer;
+        }
+      }
+
+      const headers = new Headers();
+      headers.set('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+      headers.set('Content-Type', finalMime);
+      headers.set('Content-Length', String(outputBuffer.length));
+      headers.set('Access-Control-Allow-Origin', '*');
+
+      return new Response(outputBuffer, {
+        status: 200,
+        headers
+      });
+    }
+
+    // 5. Tratamiento de VIDEOS y AUDIOS: Streaming con cabeceras Range
     const headers = new Headers();
     headers.set('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
 
-    // Detección precisa de Content-Type compatible con Windows Media Player, Paint y móviles
     let contentType = response.headers.get('Content-Type');
-    const lowerFilename = filename.toLowerCase();
-
-    if (lowerFilename.endsWith('.jpg') || lowerFilename.endsWith('.jpeg')) {
-      contentType = 'image/jpeg';
-    } else if (lowerFilename.endsWith('.png')) {
-      contentType = 'image/png';
-    } else if (lowerFilename.endsWith('.gif')) {
-      contentType = 'image/gif';
-    } else if (lowerFilename.endsWith('.mp3')) {
+    if (lowerFilename.endsWith('.mp3')) {
       contentType = 'audio/mpeg';
     } else if (lowerFilename.endsWith('.mp4')) {
       contentType = 'video/mp4';
@@ -176,6 +211,6 @@ export async function GET(request: Request) {
 
   } catch (error) {
     console.error('Download Proxy Error:', error);
-    return new Response('Internal Server Error during download proxying', { status: 500 });
+    return new Response('Error interno del servidor durante la descarga', { status: 500 });
   }
 }

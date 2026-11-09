@@ -14,7 +14,8 @@ export interface VideoData {
   liveImages?: string[];
   isLivePhoto?: boolean;
   isStory?: boolean;
-  mediaType?: 'video' | 'gallery' | 'live_photo' | 'story';
+  mediaType?: 'video' | 'gallery' | 'live_photo' | 'story' | 'photo';
+  photoUrl?: string;
   formatLabel?: string;
   width?: number;
   height?: number;
@@ -45,6 +46,7 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
   const isLive = Boolean(data.isLivePhoto || (data.liveImages && data.liveImages.length > 0));
   const isImages = Boolean(data.images && data.images.length > 0);
   const hasMultipleImages = Boolean(data.images && data.images.length > 1);
+  const isSinglePhoto = Boolean((data.mediaType === 'photo' || (isImages && !hasMultipleImages)) && !isLive && !data.videoUrl);
   const isStory = Boolean(data.isStory || data.mediaType === 'story');
 
   const getPlatformColors = () => {
@@ -248,7 +250,33 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
           {/* Botones de Descarga */}
           <div className="flex flex-wrap items-center gap-3 w-full mt-2">
             
-            {/* 1. Botón Video (Animado, Normal o Galería en video) */}
+            {/* 1. Botón para FOTO NORMAL ÚNICA (Nunca muestra MP3) */}
+            {isSinglePhoto && data.images && data.images.length > 0 && (
+              <button
+                type="button"
+                onClick={() => handleDownload(
+                  data.photoUrl || data.images![0], 
+                  cleanFilename(data.title || 'foto', 'jpg'), 
+                  setDownloadingPhoto
+                )}
+                disabled={downloadingPhoto}
+                className="flex-1 min-w-[200px] flex items-center justify-center gap-2 py-3 px-6 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-sky-500 to-blue-600 hover:opacity-95 shadow-lg shadow-sky-500/20 active:scale-95 disabled:opacity-75 transition-all"
+              >
+                {downloadingPhoto ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Descargando Foto HD...</span>
+                  </>
+                ) : (
+                  <>
+                    <ImageIcon className="w-4 h-4 stroke-[2.5]" />
+                    <span>Descargar Foto en Alta Definición (JPG)</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            {/* 2. Botón Video (Animado, Normal o Galería en video H.264) */}
             {data.videoUrl && (
               <button
                 type="button"
@@ -270,19 +298,19 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
                     <Download className="w-4 h-4 stroke-[2.5]" />
                     <span>
                       {isStory 
-                        ? 'Descargar Historia (HD)' 
+                        ? 'Descargar Historia (H.264 MP4)' 
                         : (isLive 
                             ? 'Descargar Video Animado (HD)' 
                             : (isImages 
                                 ? 'Descargar Video Completo (MP4)' 
-                                : 'Descargar Video (HD)'))}
+                                : 'Descargar Video Full HD (H.264)'))}
                     </span>
                   </>
                 )}
               </button>
             )}
 
-            {/* 2. Botón Descargar Foto Estática (si es Live Photo individual o tiene foto) */}
+            {/* 3. Botón Descargar Foto Estática (si es Live Photo individual con video animado) */}
             {isLive && data.images && data.images.length > 0 && (
               <button
                 type="button"
@@ -308,8 +336,8 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
               </button>
             )}
 
-            {/* 3. Botón Descargar Audio MP3 */}
-            {data.audioUrl && (
+            {/* 4. Botón Descargar Audio MP3 (SOLO para videos o galerías animadas, NUNCA para fotos normales) */}
+            {data.audioUrl && !isSinglePhoto && (
               <button
                 type="button"
                 onClick={() => handleDownload(

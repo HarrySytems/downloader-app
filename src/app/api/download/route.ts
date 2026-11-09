@@ -151,25 +151,54 @@ export async function POST(request: Request) {
       if (tikwmData) {
         const data = tikwmData;
         const images = (data.images || []).map(resolveUrl);
-        const liveImages = (data.live_images || []).map((p: any) => resolveUrl(p));
-        const hasLiveImagesArray = liveImages.some((p: string) => Boolean(p));
+        const liveImages = (data.live_images || []).map((p: any) => resolveUrl(p)).filter(Boolean);
+        const hasLiveImagesArray = liveImages.length > 0;
         const authorName = data.author?.nickname || data.author?.unique_id || '';
-        const playUrl = resolveUrl(data.hdplay || data.play || data.wmplay);
+        
+        // TikTok play URL: en fotos TikWM devuelve el audio en play. Verificar si es audio o video real:
+        const rawPlay = data.play || data.wmplay || '';
+        const isAudioPlay = Boolean(
+          rawPlay.includes('mime_type=audio') || 
+          rawPlay.includes('ies-music') || 
+          (data.music && rawPlay === data.music)
+        );
 
-        // Detectar si es una FOTO ANIMADA (Live Photo / clip corto de 2-3s con movimiento):
-        // En TikTok, si tiene live_images o si tiene exactamente 1 foto y trae video animado (play), es una Foto Animada
-        const isLivePhoto = hasLiveImagesArray || (images.length === 1 && Boolean(playUrl));
-        const primaryLiveVideo = liveImages.find((p: string) => Boolean(p)) || playUrl;
+        // Para compatibilidad universal con Windows Media Player:
+        // En videos: PRIORIZAR 'play' (H.264 estándar) sobre 'hdplay' (que usa HEVC/H.265 y falla en Windows Media Player)
+        const validVideoUrl = isAudioPlay ? '' : resolveUrl(data.play || data.hdplay || data.wmplay);
 
-        // CASO 1: FOTO ANIMADA (Live Photo / clip corto de 3s en movimiento)
-        if (isLivePhoto) {
+        // CASO 1: FOTO ESTÁTICA ÚNICA (Foto normal de historia o publicación)
+        // Regla: una foto normal NO debe tener opción de MP3 ni de video
+        if (images.length === 1 && !hasLiveImagesArray && !validVideoUrl) {
+          return NextResponse.json({
+            success: true,
+            platform,
+            title: data.title || (isStoryUrl ? 'Historia en Foto de TikTok' : 'Foto de TikTok'),
+            thumbnail: images[0] || data.cover || '',
+            videoUrl: '', // No es video
+            audioUrl: '', // NO tiene MP3 porque es una foto normal
+            photoUrl: images[0],
+            images: images,
+            liveImages: [],
+            isLivePhoto: false,
+            isStory: isStoryUrl,
+            mediaType: 'photo',
+            formatLabel: isStoryUrl ? 'Historia en Foto (HD)' : 'Foto en Alta Definición (HD)',
+            author: authorName
+          });
+        }
+
+        // CASO 2: FOTO ANIMADA (Live Photo / clip corto de 3s en movimiento con audio)
+        if (hasLiveImagesArray || (images.length === 1 && validVideoUrl)) {
+          const primaryLiveVideo = liveImages[0] || validVideoUrl;
           return NextResponse.json({
             success: true,
             platform,
             title: data.title || 'Foto Animada de TikTok',
             thumbnail: data.cover || images[0] || '',
-            videoUrl: primaryLiveVideo, // Video MP4 animado original
+            videoUrl: primaryLiveVideo, // Video MP4 animado H.264
             audioUrl: resolveUrl(data.music),
+            photoUrl: images[0] || '',
             images: images,
             liveImages: liveImages.length > 0 ? liveImages : [primaryLiveVideo],
             isLivePhoto: true,
@@ -180,15 +209,16 @@ export async function POST(request: Request) {
           });
         }
 
-        // CASO 2: GALERÍA DE FOTOS (Slideshow de 2 o más fotos)
+        // CASO 3: GALERÍA DE FOTOS (Slideshow de 2 o más fotos)
         if (images.length > 1) {
           return NextResponse.json({
             success: true,
             platform,
             title: data.title || 'Galería de fotos de TikTok',
             thumbnail: data.cover || images[0] || '',
-            videoUrl: playUrl, // Video compilado de la galería con música
+            videoUrl: validVideoUrl, // Video compilado si existe
             audioUrl: resolveUrl(data.music),
+            photoUrl: images[0],
             images: images,
             liveImages: [],
             isLivePhoto: false,
@@ -198,9 +228,30 @@ export async function POST(request: Request) {
             author: authorName
           });
         }
+
+        // CASO 4: VIDEO DE TIKTOK (Extraído en H.264 universal para Windows Media Player)
+        if (validVideoUrl) {
+          return NextResponse.json({
+            success: true,
+            platform,
+            title: data.title || (isStoryUrl ? 'Historia de TikTok' : 'Video de TikTok'),
+            thumbnail: data.cover || '',
+            videoUrl: validVideoUrl,
+            audioUrl: resolveUrl(data.music),
+            photoUrl: '',
+            images: [],
+            liveImages: [],
+            isLivePhoto: false,
+            isStory: isStoryUrl,
+            mediaType: isStoryUrl ? 'story' : 'video',
+            formatLabel: isStoryUrl ? 'Historia de TikTok (24h)' : 'Video Full HD (H.264)',
+            author: authorName,
+            duration: data.duration || 0
+          });
+        }
       }
 
-      // CASO 3: VIDEO NORMAL O HISTORIA DE TIKTOK (Extraído en máxima resolución Full HD 1080p vía EC2)
+      // CASO 5: VIDEO O HISTORIA VÍA EC2 (Forzando códec H.264 universal)
       try {
         const hfApiUrl = 'http://3.19.208.2:8000/api/extract-stream';
         const response = await fetch(hfApiUrl, {
@@ -210,7 +261,7 @@ export async function POST(request: Request) {
           },
           body: JSON.stringify({ 
             url: cleanUrl,
-            format_preference: 'best'
+            format_preference: 'h264'
           })
         });
         
@@ -226,7 +277,7 @@ export async function POST(request: Request) {
         
         const isFhd = (result.width && result.width >= 1080) || (result.height && result.height >= 1080);
         const isStory = isStoryUrl || result.is_story || Boolean(result.media_type === 'story');
-        const formatLabel = isStory ? 'Historia de TikTok' : (isFhd ? 'Video Full HD (1080p)' : 'Video HD');
+        const formatLabel = isStory ? 'Historia de TikTok' : (isFhd ? 'Video Full HD (1080p H.264)' : 'Video HD (H.264)');
         const mediaType = isStory ? 'story' : (result.media_type || 'video');
         
         return NextResponse.json({
@@ -247,8 +298,9 @@ export async function POST(request: Request) {
         
       } catch (err) {
         console.error('Backend extraction error:', err);
-        if (tikwmData && (tikwmData.hdplay || tikwmData.play)) {
-          const vUrl = resolveUrl(tikwmData.hdplay || tikwmData.play);
+        const fbPlay = tikwmData?.play || tikwmData?.hdplay || tikwmData?.wmplay;
+        if (tikwmData && fbPlay) {
+          const vUrl = resolveUrl(fbPlay);
           return NextResponse.json({
             success: true,
             platform,
@@ -258,7 +310,7 @@ export async function POST(request: Request) {
             audioUrl: resolveUrl(tikwmData.music),
             author: tikwmData.author?.nickname || tikwmData.author?.unique_id || '',
             mediaType: isStoryUrl ? 'story' : 'video',
-            formatLabel: isStoryUrl ? 'Historia de TikTok (24h)' : 'Video HD',
+            formatLabel: isStoryUrl ? 'Historia de TikTok (24h)' : 'Video HD (H.264)',
             isStory: isStoryUrl,
             duration: tikwmData.duration || 0
           });

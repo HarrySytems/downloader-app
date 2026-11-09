@@ -143,6 +143,9 @@ async function fetchTikTokMedia(url: string) {
       const hdPlayUrl = d.hdplay ? (d.hdplay.startsWith('http') ? d.hdplay : `https://tikwm.com${d.hdplay}`) : playUrl;
       const musicUrl = d.music ? (d.music.startsWith('http') ? d.music : `https://tikwm.com${d.music}`) : '';
 
+      const isAudioPlay = d.play && (d.play.includes('mime_type=audio') || d.play.includes('ies-music') || d.play === d.music);
+      const validPlayUrl = isAudioPlay ? '' : (playUrl || hdPlayUrl);
+
       return {
         id: d.id,
         title: d.title || 'Video de TikTok',
@@ -151,8 +154,8 @@ async function fetchTikTokMedia(url: string) {
         cover: d.cover || d.origin_cover || '',
         isImage,
         images,
-        playUrl: hdPlayUrl || playUrl,
-        musicUrl,
+        playUrl: validPlayUrl,
+        musicUrl: isImage ? '' : musicUrl,
         duration: d.duration || 0
       };
     }
@@ -206,14 +209,16 @@ async function fetchProfileData(username: string) {
       const pUrl = item.play ? (item.play.startsWith('http') ? item.play : `https://tikwm.com${item.play}`) : '';
       const hdpUrl = item.hdplay ? (item.hdplay.startsWith('http') ? item.hdplay : `https://tikwm.com${item.hdplay}`) : pUrl;
       const mUrl = item.music ? (item.music.startsWith('http') ? item.music : `https://tikwm.com${item.music}`) : '';
+      const isAud = pUrl.includes('mime_type=audio') || pUrl.includes('ies-music') || pUrl === mUrl;
+      const validP = isAud ? '' : (pUrl || hdpUrl);
 
       return {
         id: item.video_id,
         url: `https://www.tiktok.com/@${cleanUser}/video/${item.video_id}`,
         title: item.title || `Video de @${cleanUser}`,
         thumbnail: item.cover || item.origin_cover || '',
-        play: hdpUrl || pUrl,
-        playUrl: hdpUrl || pUrl,
+        play: validP,
+        playUrl: validP,
         musicUrl: mUrl,
         duration: item.duration || 0,
         mix_info: item.mix_info || null

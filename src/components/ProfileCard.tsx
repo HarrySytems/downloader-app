@@ -139,9 +139,12 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
   // Descarga individual inteligente con resolución automática de streams Full HD
   const triggerDownload = async (urlOrStream: string, filename: string, label: string, isAudio?: boolean) => {
     try {
-      setToastMessage({ text: `⬇️ Preparando ${label} en Full HD...`, type: 'info' });
+      setToastMessage({ text: `⬇️ Preparando ${label}...`, type: 'info' });
 
       let targetUrl = urlOrStream;
+      const lowerName = filename.toLowerCase();
+      const isPhotoDownload = lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg') || lowerName.endsWith('.png') || lowerName.endsWith('.webp');
+      const isAudioDownload = Boolean(isAudio) || lowerName.endsWith('.mp3');
 
       // Si es un enlace de página de TikTok, extraer el stream real vía /api/download
       const isTikTokPage = targetUrl.includes('tiktok.com/@') || 
@@ -162,12 +165,19 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
           if (res.ok) {
             const resultData = await res.json();
             if (resultData.success) {
-              if (isAudio && resultData.audioUrl) {
+              if (isAudioDownload && resultData.audioUrl) {
                 targetUrl = resultData.audioUrl;
+              } else if (isPhotoDownload) {
+                // PRIORIDAD ABSOLUTA A FOTOS: Nunca asignar video ni audio a una descarga de imagen
+                if (resultData.photoUrl) {
+                  targetUrl = resultData.photoUrl;
+                } else if (resultData.images && resultData.images.length > 0) {
+                  targetUrl = resultData.images[0];
+                } else if (resultData.thumbnail) {
+                  targetUrl = resultData.thumbnail;
+                }
               } else if (resultData.videoUrl) {
                 targetUrl = resultData.videoUrl;
-              } else if (resultData.images && resultData.images.length > 0) {
-                targetUrl = resultData.images[0];
               }
             }
           }
@@ -357,21 +367,12 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
       <div className="flex flex-col md:flex-row items-center md:items-start justify-between gap-6 pb-6 border-b border-slate-200 dark:border-slate-800">
         
         <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 sm:gap-6 w-full md:w-auto">
-          {/* Avatar con Anillo Luminoso */}
+          {/* Foto de Perfil (Solo foto estática, sin clics ni badges confusos) */}
           <div 
-            onClick={() => {
-              if (hasStories) {
-                handleVideoClick(activeStories[0], true);
-              }
-            }}
-            className={`relative group shrink-0 ${hasStories ? 'cursor-pointer' : ''}`}
-            title={hasStories ? 'Toca para ver historia activa' : 'Foto de perfil'}
+            className="relative shrink-0 select-none"
+            title={`Foto de perfil de @${data.username}`}
           >
-            <div className={`w-24 h-24 sm:w-28 sm:h-28 rounded-full p-[3px] shadow-xl transition-transform duration-300 ${
-              hasStories 
-                ? 'bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 animate-pulse hover:scale-105' 
-                : 'bg-gradient-to-tr from-cyan-400 via-sky-500 to-blue-600'
-            }`}>
+            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full p-[3px] shadow-xl bg-gradient-to-tr from-cyan-400 via-sky-500 to-blue-600">
               <div className="w-full h-full rounded-full p-[2px] bg-white dark:bg-[#0b1328]">
                 <div className="w-full h-full rounded-full overflow-hidden bg-slate-900 flex items-center justify-center relative">
                   {data.avatar ? (
@@ -387,20 +388,9 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                   ) : (
                     <User className="w-12 h-12 text-slate-500" />
                   )}
-                  {hasStories && (
-                    <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Play className="w-7 h-7 text-white fill-current drop-shadow-md" />
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
-
-            {hasStories && (
-              <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-pink-500 to-rose-600 text-white shadow-lg border border-white dark:border-[#0b1328] shrink-0 whitespace-nowrap">
-                Historia
-              </span>
-            )}
           </div>
 
           {/* Información del Creador */}
@@ -1005,58 +995,77 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
             </p>
 
             <div className="flex flex-col gap-2.5">
-              {/* Opción 1: Video Full HD 1080p */}
-              <button
-                type="button"
-                onClick={() => {
-                  const ext = formatModalItem.isImage ? 'jpg' : 'mp4';
-                  const label = formatModalItem.isImage ? 'Foto en Alta Resolución' : 'Video MP4 Full HD (1080p)';
-                  triggerDownload(formatModalItem.downloadUrl || formatModalItem.url, `ByteDownloader_${data.username}_${formatModalItem.id}.${ext}`, label, false);
-                  setFormatModalItem(null);
-                }}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-sm flex items-center justify-between shadow-lg shadow-sky-500/25 transition-all active:scale-95"
-              >
-                <div className="flex items-center gap-2.5">
-                  <Film className="w-4 h-4" />
-                  <span>{formatModalItem.isImage ? 'Descargar Foto HD' : 'Video MP4 Full HD (1080p)'}</span>
-                </div>
-                <span className="text-[10px] uppercase font-black bg-white/20 px-2 py-0.5 rounded-full">Recomendado</span>
-              </button>
-
-              {/* Opción 2: Video Sin Sonido (Mute) */}
-              {!formatModalItem.isImage && (
+              {/* Para FOTOS: Única opción de Descarga en Alta Resolución (JPG genuino) - NUNCA mostrar MP3 */}
+              {formatModalItem.isImage ? (
                 <button
                   type="button"
                   onClick={() => {
-                    triggerDownload(formatModalItem.downloadUrl || formatModalItem.url, `ByteDownloader_SinSonido_${data.username}_${formatModalItem.id}.mp4`, 'Video Sin Sonido (Mudo)', false);
+                    const dlUrl = formatModalItem.downloadUrl || formatModalItem.url;
+                    triggerDownload(dlUrl, `ByteDownloader_${data.username}_${formatModalItem.id}.jpg`, 'Foto en Alta Definición (JPG)', false);
                     setFormatModalItem(null);
                   }}
-                  className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm flex items-center justify-between border border-slate-700 transition-all active:scale-95"
+                  className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-sm flex items-center justify-between shadow-lg shadow-sky-500/25 transition-all active:scale-95"
                 >
                   <div className="flex items-center gap-2.5">
-                    <VolumeX className="w-4 h-4 text-slate-400" />
-                    <span>Video Sin Sonido (Mute)</span>
+                    <Download className="w-4 h-4" />
+                    <span>Descargar Foto HD (JPG)</span>
                   </div>
-                  <span className="text-xs text-slate-400">MP4</span>
+                  <span className="text-[10px] uppercase font-black bg-white/20 px-2 py-0.5 rounded-full">Recomendado</span>
                 </button>
-              )}
+              ) : (
+                <>
+                  {/* Para VIDEOS: Opción 1 - Video Full HD 1080p */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerDownload(formatModalItem.downloadUrl || formatModalItem.url, `ByteDownloader_${data.username}_${formatModalItem.id}.mp4`, 'Video MP4 Full HD (1080p)', false);
+                      setFormatModalItem(null);
+                    }}
+                    className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-sm flex items-center justify-between shadow-lg shadow-sky-500/25 transition-all active:scale-95"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Film className="w-4 h-4" />
+                      <span>Video MP4 Full HD (1080p H.264)</span>
+                    </div>
+                    <span className="text-[10px] uppercase font-black bg-white/20 px-2 py-0.5 rounded-full">Recomendado</span>
+                  </button>
 
-              {/* Opción 3: Audio MP3 */}
-              <button
-                type="button"
-                onClick={() => {
-                  const audioSource = formatModalItem.musicUrl || formatModalItem.downloadUrl || formatModalItem.url;
-                  triggerDownload(audioSource, `ByteDownloader_Audio_${data.username}_${formatModalItem.id}.mp3`, 'Audio MP3 (Música Original)', true);
-                  setFormatModalItem(null);
-                }}
-                className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm flex items-center justify-between border border-slate-700 transition-all active:scale-95"
-              >
-                <div className="flex items-center gap-2.5">
-                  <Music className="w-4 h-4 text-emerald-400" />
-                  <span>Solo Audio (MP3)</span>
-                </div>
-                <span className="text-xs text-emerald-400">MP3</span>
-              </button>
+                  {/* Para VIDEOS: Opción 2 - Video Sin Sonido (Mute) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerDownload(formatModalItem.downloadUrl || formatModalItem.url, `ByteDownloader_SinSonido_${data.username}_${formatModalItem.id}.mp4`, 'Video Sin Sonido (Mudo)', false);
+                      setFormatModalItem(null);
+                    }}
+                    className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm flex items-center justify-between border border-slate-700 transition-all active:scale-95"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <VolumeX className="w-4 h-4 text-slate-400" />
+                      <span>Video Sin Sonido (Mute)</span>
+                    </div>
+                    <span className="text-xs text-slate-400">MP4</span>
+                  </button>
+
+                  {/* Para VIDEOS: Opción 3 - Audio MP3 (Solo si tiene pista de audio) */}
+                  {formatModalItem.musicUrl && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const audioSource = formatModalItem.musicUrl || formatModalItem.downloadUrl || formatModalItem.url;
+                        triggerDownload(audioSource, `ByteDownloader_Audio_${data.username}_${formatModalItem.id}.mp3`, 'Audio MP3 (Música Original)', true);
+                        setFormatModalItem(null);
+                      }}
+                      className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm flex items-center justify-between border border-slate-700 transition-all active:scale-95"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Music className="w-4 h-4 text-emerald-400" />
+                        <span>Solo Audio (MP3)</span>
+                      </div>
+                      <span className="text-xs text-emerald-400">MP3</span>
+                    </button>
+                  )}
+                </>
+              )}
             </div>
 
             <div className="mt-4 pt-3 border-t border-slate-800 text-center">

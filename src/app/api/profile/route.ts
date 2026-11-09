@@ -129,25 +129,37 @@ async function fetchProfileFromTikWM(username: string, start: number = 1, count:
 
     const rawVideos = postsData.data.videos || [];
     const videos = rawVideos.map((item: any) => {
+      const images: string[] = item.images || [];
+      const hasImages = images.length > 0;
+      const isAudioPlay = item.play && (item.play.includes('mime_type=audio') || item.play.includes('ies-music') || item.play === item.music);
+      const isImagePost = hasImages || item.biz_tag === 'tt_photomode' || Boolean(item.duration === 0 && (!item.play || isAudioPlay));
+
       const dur = item.duration || 0;
-      const durStr = dur ? `${Math.floor(dur / 60)}:${(dur % 60).toString().padStart(2, '0')}` : '';
+      const durStr = isImagePost ? 'Foto' : (dur ? `${Math.floor(dur / 60)}:${(dur % 60).toString().padStart(2, '0')}` : '0:15');
       const playUrl = item.play ? (item.play.startsWith('http') ? item.play : `https://tikwm.com${item.play}`) : '';
       const hdPlayUrl = item.hdplay ? (item.hdplay.startsWith('http') ? item.hdplay : `https://tikwm.com${item.hdplay}`) : playUrl;
       const musicUrl = item.music ? (item.music.startsWith('http') ? item.music : `https://tikwm.com${item.music}`) : '';
 
+      // Para videos: PRIORIZAR playUrl que es H.264 compatible nativo con Windows Media Player (hdPlayUrl suele ser HEVC)
+      const validPlayUrl = isImagePost ? '' : (playUrl || hdPlayUrl);
+      const cover = (hasImages && images[0]) || item.cover || item.origin_cover || '';
+
       return {
         id: item.video_id,
-        url: `https://www.tiktok.com/@${username}/video/${item.video_id}`,
-        title: item.title || `Video de @${username}`,
-        thumbnail: item.cover || item.origin_cover || '',
+        url: isImagePost ? `https://www.tiktok.com/@${username}/photo/${item.video_id}` : `https://www.tiktok.com/@${username}/video/${item.video_id}`,
+        title: item.title || (isImagePost ? `Foto de @${username}` : `Video de @${username}`),
+        thumbnail: cover,
         duration: durStr,
         views: formatCountHelper(item.play_count),
         likes: formatCountHelper(item.digg_count),
         raw_views: item.play_count || 0,
         raw_likes: item.digg_count || 0,
         timestamp: item.create_time || 0,
-        play_url: hdPlayUrl || playUrl,
-        music_url: musicUrl,
+        play_url: validPlayUrl,
+        download_url: isImagePost ? (images[0] || cover) : validPlayUrl,
+        music_url: isImagePost ? '' : musicUrl,
+        is_image: isImagePost,
+        images: isImagePost ? (images.length > 0 ? images : [cover]) : [],
         mix_info: item.mix_info || null
       };
     });
