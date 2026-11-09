@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { sendTelegramAlert, extractClientMeta } from '@/lib/telegram';
-import sharp from 'sharp';
 
 export const maxDuration = 60;
 
@@ -137,52 +136,15 @@ export async function GET(request: Request) {
       return new Response('El contenido no pudo ser extraído en formato de video/foto válido.', { status: 422 });
     }
 
-    // 4. Tratamiento de IMÁGENES: Convertir WebP a JPEG genuino para que Paint y visores de Windows lo abran al 100%
-    if (isPhoto) {
-      const arrayBuffer = await response.arrayBuffer();
-      const inputBuffer = Buffer.from(arrayBuffer);
-
-      let outputBuffer = inputBuffer;
-      let finalMime = 'image/jpeg';
-
-      if (lowerFilename.endsWith('.png')) {
-        try {
-          outputBuffer = await sharp(inputBuffer).png().toBuffer();
-          finalMime = 'image/png';
-        } catch {
-          outputBuffer = inputBuffer;
-        }
-      } else {
-        // Por defecto JPG (convierte WebP, AVIF o JPG a JPEG Baseline compatible con Paint)
-        try {
-          outputBuffer = await sharp(inputBuffer)
-            .jpeg({ quality: 95, mozjpeg: true })
-            .toBuffer();
-          finalMime = 'image/jpeg';
-        } catch (err) {
-          console.error('Sharp JPEG conversion error:', err);
-          outputBuffer = inputBuffer;
-        }
-      }
-
-      const headers = new Headers();
-      headers.set('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
-      headers.set('Content-Type', finalMime);
-      headers.set('Content-Length', String(outputBuffer.length));
-      headers.set('Access-Control-Allow-Origin', '*');
-
-      return new Response(outputBuffer, {
-        status: 200,
-        headers
-      });
-    }
-
-    // 5. Tratamiento de VIDEOS y AUDIOS: Streaming con cabeceras Range
     const headers = new Headers();
     headers.set('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
 
     let contentType = response.headers.get('Content-Type');
-    if (lowerFilename.endsWith('.mp3')) {
+    if (lowerFilename.endsWith('.jpg') || lowerFilename.endsWith('.jpeg')) {
+      contentType = 'image/jpeg';
+    } else if (lowerFilename.endsWith('.png')) {
+      contentType = 'image/png';
+    } else if (lowerFilename.endsWith('.mp3')) {
       contentType = 'audio/mpeg';
     } else if (lowerFilename.endsWith('.mp4')) {
       contentType = 'video/mp4';
