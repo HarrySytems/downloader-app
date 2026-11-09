@@ -182,6 +182,33 @@ async function fetchProfileData(username: string) {
       if (ec2Res.ok) {
         const ec2Data = await ec2Res.json();
         if (ec2Data && ec2Data.success) {
+          if (ec2Data.stories && Array.isArray(ec2Data.stories)) {
+            ec2Data.stories = ec2Data.stories.map((s: any) => {
+              const isImg = Boolean(s.is_image || (s.images && s.images.length > 0) || s.duration === 'Foto' || s.duration === 0);
+              const canonicalUrl = isImg 
+                ? `https://www.tiktok.com/@${cleanUser}/photo/${s.id}` 
+                : `https://www.tiktok.com/@${cleanUser}/video/${s.id}`;
+              return {
+                ...s,
+                is_image: isImg,
+                duration: isImg ? 'Foto' : (s.duration || '0:15'),
+                url: canonicalUrl,
+                download_url: canonicalUrl,
+                music_url: isImg ? '' : (s.music_url || '')
+              };
+            });
+          }
+          if (ec2Data.videos && Array.isArray(ec2Data.videos)) {
+            ec2Data.videos = ec2Data.videos.map((v: any) => {
+              const isImg = Boolean(v.is_image || (v.images && v.images.length > 0) || v.duration === 'Foto' || v.duration === 0);
+              return {
+                ...v,
+                is_image: isImg,
+                duration: isImg ? 'Foto' : (v.duration || '0:15'),
+                music_url: isImg ? '' : (v.music_url || '')
+              };
+            });
+          }
           if (!ec2Data.highlights || ec2Data.highlights.length === 0) {
             ec2Data.highlights = buildHighlights(cleanUser, ec2Data.videos || []);
           }
@@ -423,13 +450,14 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
           return NextResponse.json({ ok: true });
         }
 
-        const proxyStreamUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(story.download_url)}`;
-        const caption = `⏱️ <b>Historia #${storyIdx + 1} de @${username}</b>\n${story.is_image ? '📷 Tipo: Foto en Alta Resolución' : '🎬 Tipo: Video Full HD 1080p'}\n\n¿Deseas descargar este archivo a tu galería?`;
+        const ext = story.is_image ? 'jpg' : 'mp4';
+        const proxyStreamUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(story.download_url)}&filename=historia_${username}_${storyIdx + 1}.${ext}`;
+        const caption = `⏱️ <b>Historia #${storyIdx + 1} de @${username}</b>\n${story.is_image ? '📷 Tipo: Foto en Alta Resolución (HD)' : '🎬 Tipo: Video Full HD 1080p'}\n\n¿Deseas guardar este archivo en tu dispositivo?`;
 
         const actionButtons = {
           inline_keyboard: [
             [
-              { text: '📥 Sí, Descargar', callback_data: `ask_fmt_st:${username}:${storyIdx}` },
+              { text: '📥 Sí, Guardar Archivo', callback_data: `ask_fmt_st:${username}:${storyIdx}` },
               { text: '❌ No, Ver otras', callback_data: `view_stories:${username}` }
             ],
             [
@@ -464,19 +492,53 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
       if (data.startsWith('ask_fmt_st:')) {
         const parts = data.split(':');
         const username = parts[1];
-        const storyIdx = parts[2];
+        const storyIdx = parseInt(parts[2] || '0', 10);
+
+        const profile = await fetchProfileData(username);
+        const story = profile?.stories?.[storyIdx];
+
+        if (!story) {
+          await callPublicBot('sendMessage', {
+            chat_id: chatId,
+            text: '⚠️ Esta historia ya no se encuentra disponible.'
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        // Si es una FOTO: NUNCA mostrar MP3 ni video, solo opción de guardar foto HD
+        if (story.is_image) {
+          await callPublicBot('sendMessage', {
+            chat_id: chatId,
+            text: `📷 <b>Historia #${storyIdx + 1} de @${username} (Foto en Alta Resolución)</b>\nSelecciona para descargar la imagen original en formato JPG:`,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '📷 Guardar Foto HD (JPG)', callback_data: `dl_st:${username}:${storyIdx}:photo` }],
+                [{ text: '🔙 Volver a historias', callback_data: `view_stories:${username}` }]
+              ]
+            }
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        // Si es un VIDEO:
+        const videoButtons: any[] = [
+          [{ text: '🎬 Video MP4 Full HD (1080p)', callback_data: `dl_st:${username}:${storyIdx}:hd` }],
+          [{ text: '🔇 Video Sin Sonido (Mute)', callback_data: `dl_st:${username}:${storyIdx}:mute` }]
+        ];
+
+        if (story.music_url) {
+          videoButtons.push([{ text: '🎵 Audio MP3 (Música)', callback_data: `dl_st:${username}:${storyIdx}:mp3` }]);
+        }
+
+        videoButtons.push([{ text: '🔙 Volver a historias', callback_data: `view_stories:${username}` }]);
 
         await callPublicBot('sendMessage', {
           chat_id: chatId,
-          text: `📥 <b>Opciones de Formato para Historia #${parseInt(storyIdx, 10) + 1}:</b>\nSelecciona el archivo que deseas guardar:`,
+          text: `📥 <b>Opciones de Formato para Historia #${storyIdx + 1}:</b>\nSelecciona el archivo que deseas guardar:`,
           parse_mode: 'HTML',
           reply_markup: {
-            inline_keyboard: [
-              [{ text: '🎬 Video MP4 Full HD (1080p)', callback_data: `dl_st:${username}:${storyIdx}:hd` }],
-              [{ text: '🔇 Video Sin Sonido (Mute)', callback_data: `dl_st:${username}:${storyIdx}:mute` }],
-              [{ text: '🎵 Audio MP3', callback_data: `dl_st:${username}:${storyIdx}:mp3` }],
-              [{ text: '🔙 Volver a historias', callback_data: `view_stories:${username}` }]
-            ]
+            inline_keyboard: videoButtons
           }
         });
         return NextResponse.json({ ok: true });
@@ -493,19 +555,20 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
         const story = profile?.stories?.[storyIdx];
 
         if (story) {
-          let ext = story.is_image ? 'jpg' : 'mp4';
-          let dlUrl = story.download_url;
-          let label = 'Full HD';
+          const isPhoto = story.is_image || fmt === 'photo';
+          let ext = isPhoto ? 'jpg' : 'mp4';
+          let dlUrl = story.url || story.download_url;
+          let label = isPhoto ? 'Foto HD (JPG)' : 'Video Full HD 1080p';
 
-          if (fmt === 'mp3') {
+          if (fmt === 'mp3' && !isPhoto) {
             ext = 'mp3';
-            dlUrl = story.music_url || story.download_url;
+            dlUrl = story.music_url || dlUrl;
             label = 'Audio MP3';
-          } else if (fmt === 'mute') {
+          } else if (fmt === 'mute' && !isPhoto) {
             label = 'Video Sin Sonido';
           }
 
-          const fileUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(dlUrl)}&filename=historia_${username}_${storyIdx + 1}.${ext}`;
+          const fileUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(dlUrl)}&filename=historia_${username}_${storyIdx + 1}.${ext}${fmt === 'mp3' ? '&format=mp3' : ''}`;
 
           await callPublicBot('sendDocument', {
             chat_id: chatId,
@@ -662,14 +725,18 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
           return NextResponse.json({ ok: true });
         }
 
-        const rawUrl = item.playUrl || item.download_url || item.url;
-        const proxyStreamUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(rawUrl)}`;
-        const caption = `🎬 <b>${item.title}</b>\n📁 Colección: <b>${hl.title}</b> (@${username})\n✨ Calidad: <b>Full HD 1080p Sin Marca de Agua</b>\n\n¿Deseas descargar este archivo a tu dispositivo?`;
+        const isImg = Boolean((item as any).is_image || item.duration === 'Foto');
+        const ext = isImg ? 'jpg' : 'mp4';
+        const rawUrl = item.url || item.playUrl || item.download_url;
+        const proxyStreamUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(rawUrl)}&filename=destacado_${username}_${itemIdx + 1}.${ext}`;
+        const caption = isImg 
+          ? `📷 <b>${item.title}</b>\n📁 Colección: <b>${hl.title}</b> (@${username})\n✨ Calidad: <b>Foto Full HD (Alta Definición)</b>\n\n¿Deseas guardar esta foto en tu galería?`
+          : `🎬 <b>${item.title}</b>\n📁 Colección: <b>${hl.title}</b> (@${username})\n✨ Calidad: <b>Full HD 1080p Sin Marca de Agua</b>\n\n¿Deseas descargar este video a tu dispositivo?`;
 
         const actionButtons = {
           inline_keyboard: [
             [
-              { text: '📥 Sí, Descargar Archivo', callback_data: `ask_fmt_hl:${username}:${hlIdx}:${itemIdx}` },
+              { text: isImg ? '📥 Sí, Guardar Foto' : '📥 Sí, Descargar Archivo', callback_data: `ask_fmt_hl:${username}:${hlIdx}:${itemIdx}` },
               { text: '❌ No, Seguir viendo', callback_data: `view_hl_detail:${username}:${hlIdx}:0` }
             ],
             [
@@ -679,13 +746,23 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
           ]
         };
 
-        await callPublicBot('sendVideo', {
-          chat_id: chatId,
-          video: proxyStreamUrl,
-          caption,
-          parse_mode: 'HTML',
-          reply_markup: actionButtons
-        });
+        if (isImg) {
+          await callPublicBot('sendPhoto', {
+            chat_id: chatId,
+            photo: proxyStreamUrl,
+            caption,
+            parse_mode: 'HTML',
+            reply_markup: actionButtons
+          });
+        } else {
+          await callPublicBot('sendVideo', {
+            chat_id: chatId,
+            video: proxyStreamUrl,
+            caption,
+            parse_mode: 'HTML',
+            reply_markup: actionButtons
+          });
+        }
 
         return NextResponse.json({ ok: true });
       }
@@ -697,17 +774,40 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
         const hlIdx = parts[2];
         const itemIdx = parts[3];
 
+        const profile = await fetchProfileData(username);
+        const item = profile?.highlights?.[parseInt(hlIdx, 10)]?.items?.[parseInt(itemIdx, 10)];
+
+        const isImg = Boolean((item as any)?.is_image || item?.duration === 'Foto');
+        if (isImg) {
+          await callPublicBot('sendMessage', {
+            chat_id: chatId,
+            text: `📷 <b>Destacado #${parseInt(itemIdx, 10) + 1} de @${username} (Foto)</b>\nSelecciona para descargar la imagen original en formato JPG:`,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '📷 Guardar Foto HD (JPG)', callback_data: `dl_hl:${username}:${hlIdx}:${itemIdx}:photo` }],
+                [{ text: '🔙 Cancelar / Volver', callback_data: `view_hl_detail:${username}:${parseInt(hlIdx, 10)}:0` }]
+              ]
+            }
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        const videoButtons: any[] = [
+          [{ text: '🎬 Video MP4 Full HD (1080p)', callback_data: `dl_hl:${username}:${hlIdx}:${itemIdx}:hd` }],
+          [{ text: '🔇 Video Sin Sonido (Mute)', callback_data: `dl_hl:${username}:${hlIdx}:${itemIdx}:mute` }]
+        ];
+        if (item?.musicUrl || (item as any)?.music_url) {
+          videoButtons.push([{ text: '🎵 Audio MP3', callback_data: `dl_hl:${username}:${hlIdx}:${itemIdx}:mp3` }]);
+        }
+        videoButtons.push([{ text: '🔙 Cancelar / Volver', callback_data: `view_hl_detail:${username}:${parseInt(hlIdx, 10)}:0` }]);
+
         await callPublicBot('sendMessage', {
           chat_id: chatId,
           text: `📥 <b>Selecciona el formato de descarga deseado:</b>`,
           parse_mode: 'HTML',
           reply_markup: {
-            inline_keyboard: [
-              [{ text: '🎬 Video MP4 Full HD (1080p)', callback_data: `dl_hl:${username}:${hlIdx}:${itemIdx}:hd` }],
-              [{ text: '🔇 Video Sin Sonido (Mute)', callback_data: `dl_hl:${username}:${hlIdx}:${itemIdx}:mute` }],
-              [{ text: '🎵 Audio MP3', callback_data: `dl_hl:${username}:${hlIdx}:${itemIdx}:mp3` }],
-              [{ text: '🔙 Cancelar / Volver', callback_data: `view_hl_detail:${username}:${parseInt(hlIdx, 10)}:0` }]
-            ]
+            inline_keyboard: videoButtons
           }
         });
         return NextResponse.json({ ok: true });
@@ -725,19 +825,20 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
         const item = profile?.highlights?.[hlIdx]?.items?.[itemIdx];
 
         if (item) {
-          let ext = 'mp4';
-          let dlUrl = item.playUrl || item.download_url || item.url;
-          let label = 'Full HD 1080p';
+          const isPhoto = Boolean((item as any).is_image || fmt === 'photo');
+          let ext = isPhoto ? 'jpg' : 'mp4';
+          let dlUrl = item.url || item.playUrl || item.download_url;
+          let label = isPhoto ? 'Foto HD (JPG)' : 'Full HD 1080p';
 
-          if (fmt === 'mp3') {
+          if (fmt === 'mp3' && !isPhoto) {
             ext = 'mp3';
-            dlUrl = item.musicUrl || dlUrl;
+            dlUrl = item.musicUrl || (item as any).music_url || dlUrl;
             label = 'Audio MP3';
-          } else if (fmt === 'mute') {
+          } else if (fmt === 'mute' && !isPhoto) {
             label = 'Video Sin Sonido';
           }
 
-          const fileUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(dlUrl)}&filename=destacado_${username}_${itemIdx + 1}.${ext}`;
+          const fileUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(dlUrl)}&filename=destacado_${username}_${itemIdx + 1}.${ext}${fmt === 'mp3' ? '&format=mp3' : ''}`;
 
           await callPublicBot('sendDocument', {
             chat_id: chatId,
@@ -817,14 +918,18 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
           return NextResponse.json({ ok: true });
         }
 
-        const rawUrl = video.play || video.playUrl || video.url;
-        const proxyStreamUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(rawUrl)}`;
-        const caption = `🎬 <b>${video.title}</b>\n👤 Creador: <b>@${username}</b>\n✨ Calidad: <b>Full HD 1080p Sin Marca de Agua</b>\n\n¿Deseas descargar este archivo a tu dispositivo?`;
+        const isImg = Boolean((video as any).is_image || video.duration === 'Foto');
+        const ext = isImg ? 'jpg' : 'mp4';
+        const rawUrl = video.url || video.play || video.playUrl;
+        const proxyStreamUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(rawUrl)}&filename=publicacion_${username}_${idx + 1}.${ext}`;
+        const caption = isImg
+          ? `📷 <b>${video.title}</b>\n👤 Creador: <b>@${username}</b>\n✨ Calidad: <b>Foto Full HD (Alta Definición)</b>\n\n¿Deseas guardar esta foto en tu galería?`
+          : `🎬 <b>${video.title}</b>\n👤 Creador: <b>@${username}</b>\n✨ Calidad: <b>Full HD 1080p Sin Marca de Agua</b>\n\n¿Deseas descargar este video a tu dispositivo?`;
 
         const actionButtons = {
           inline_keyboard: [
             [
-              { text: '📥 Sí, Descargar Archivo', callback_data: `ask_fmt_pub:${username}:${idx}` },
+              { text: isImg ? '📥 Sí, Guardar Foto' : '📥 Sí, Descargar Archivo', callback_data: `ask_fmt_pub:${username}:${idx}` },
               { text: '❌ No, Ver otros', callback_data: `view_vids_menu:${username}` }
             ],
             [
@@ -834,13 +939,23 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
           ]
         };
 
-        await callPublicBot('sendVideo', {
-          chat_id: chatId,
-          video: proxyStreamUrl,
-          caption,
-          parse_mode: 'HTML',
-          reply_markup: actionButtons
-        });
+        if (isImg) {
+          await callPublicBot('sendPhoto', {
+            chat_id: chatId,
+            photo: proxyStreamUrl,
+            caption,
+            parse_mode: 'HTML',
+            reply_markup: actionButtons
+          });
+        } else {
+          await callPublicBot('sendVideo', {
+            chat_id: chatId,
+            video: proxyStreamUrl,
+            caption,
+            parse_mode: 'HTML',
+            reply_markup: actionButtons
+          });
+        }
 
         return NextResponse.json({ ok: true });
       }
@@ -851,17 +966,42 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
         const username = parts[1];
         const idx = parts[2];
 
+        const profile = await fetchProfileData(username);
+        const video = profile?.videos?.[parseInt(idx, 10)];
+
+        const isImg = Boolean((video as any)?.is_image || video?.duration === 'Foto');
+        if (isImg) {
+          await callPublicBot('sendMessage', {
+            chat_id: chatId,
+            text: `📷 <b>Publicación #${parseInt(idx, 10) + 1} de @${username} (Foto)</b>\nSelecciona para descargar la imagen original en formato JPG:`,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '📷 Guardar Foto HD (JPG)', callback_data: `dl_pub:${username}:${idx}:photo` }],
+                [{ text: '🔙 Cancelar / Volver', callback_data: `view_vids_menu:${username}` }]
+              ]
+            }
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        const videoButtons: any[] = [
+          [{ text: '🎬 Video MP4 Full HD (1080p)', callback_data: `dl_pub:${username}:${idx}:hd` }],
+          [{ text: '🔇 Video Sin Sonido (Mute)', callback_data: `dl_pub:${username}:${idx}:mute` }]
+        ];
+
+        if (video?.musicUrl || (video as any)?.music_url) {
+          videoButtons.push([{ text: '🎵 Audio MP3', callback_data: `dl_pub:${username}:${idx}:mp3` }]);
+        }
+
+        videoButtons.push([{ text: '🔙 Cancelar / Volver', callback_data: `view_vids_menu:${username}` }]);
+
         await callPublicBot('sendMessage', {
           chat_id: chatId,
           text: `📥 <b>Selecciona el formato de descarga deseado:</b>`,
           parse_mode: 'HTML',
           reply_markup: {
-            inline_keyboard: [
-              [{ text: '🎬 Video MP4 Full HD (1080p)', callback_data: `dl_pub:${username}:${idx}:hd` }],
-              [{ text: '🔇 Video Sin Sonido (Mute)', callback_data: `dl_pub:${username}:${idx}:mute` }],
-              [{ text: '🎵 Audio MP3', callback_data: `dl_pub:${username}:${idx}:mp3` }],
-              [{ text: '🔙 Cancelar / Volver', callback_data: `view_vids_menu:${username}` }]
-            ]
+            inline_keyboard: videoButtons
           }
         });
         return NextResponse.json({ ok: true });
@@ -878,19 +1018,20 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
         const video = profile?.videos?.[idx];
 
         if (video) {
-          let ext = 'mp4';
-          let dlUrl = video.play || video.playUrl || video.url;
-          let label = 'Full HD 1080p';
+          const isPhoto = Boolean((video as any).is_image || fmt === 'photo');
+          let ext = isPhoto ? 'jpg' : 'mp4';
+          let dlUrl = video.url || video.play || video.playUrl;
+          let label = isPhoto ? 'Foto HD (JPG)' : 'Full HD 1080p';
 
-          if (fmt === 'mp3') {
+          if (fmt === 'mp3' && !isPhoto) {
             ext = 'mp3';
-            dlUrl = video.musicUrl || dlUrl;
+            dlUrl = video.musicUrl || (video as any).music_url || dlUrl;
             label = 'Audio MP3';
-          } else if (fmt === 'mute') {
+          } else if (fmt === 'mute' && !isPhoto) {
             label = 'Video Sin Sonido';
           }
 
-          const fileUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(dlUrl)}&filename=video_${username}_${idx + 1}.${ext}`;
+          const fileUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(dlUrl)}&filename=video_${username}_${idx + 1}.${ext}${fmt === 'mp3' ? '&format=mp3' : ''}`;
 
           await callPublicBot('sendDocument', {
             chat_id: chatId,

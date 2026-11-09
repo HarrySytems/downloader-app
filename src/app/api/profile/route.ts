@@ -26,51 +26,63 @@ function buildHighlightsForUser(username: string, videos: any[]): ProfileHighlig
         title: '🥶 ☠️',
         cover: v0.thumbnail || 'https://p16-common-sign.tiktokcdn-us.com/tos-useast2a-p-0037-euttp/o4IB1dBz9t1fCAQ4MOaBDpvAiTzuvksEToviI2~tplv-tiktokx-origin.image',
         count: Math.min(videos.length, 8),
-        items: videos.slice(0, 8).map((v, i) => ({
-          id: `hl_item_1_${i}`,
-          url: v.url,
-          title: v.title || `Destacado #1 - Item ${i + 1}`,
-          thumbnail: v.thumbnail,
-          duration: v.duration || '0:20',
-          views: v.views || '11.5K',
-          likes: v.likes || '173',
-          download_url: v.play_url || v.url,
-          music_url: v.music_url || ''
-        }))
+        items: videos.slice(0, 8).map((v, i) => {
+          const isImg = Boolean((v as any).is_image || (v as any).images?.length > 0 || v.duration === 'Foto' || v.duration === 0);
+          return {
+            id: `hl_item_1_${i}`,
+            url: v.url,
+            title: v.title || `Destacado #1 - Item ${i + 1}`,
+            thumbnail: v.thumbnail,
+            duration: isImg ? 'Foto' : (v.duration || '0:20'),
+            views: v.views || '11.5K',
+            likes: v.likes || '173',
+            download_url: v.url,
+            music_url: isImg ? '' : (v.music_url || ''),
+            is_image: isImg
+          };
+        })
       },
       {
         id: 'hl_clash_2',
         title: '☠️ Pro ti...',
         cover: v1.thumbnail || 'https://p19-common-sign.tiktokcdn-us.com/tos-useast2a-p-0037-euttp/o0iEpfevXQlRBwiIB3xiA8Bm2D7iE4zEq0zVyv~tplv-tiktokx-origin.image',
         count: Math.min(Math.max(1, videos.length - 1), 6),
-        items: videos.slice(1, 7).map((v, i) => ({
-          id: `hl_item_2_${i}`,
-          url: v.url,
-          title: v.title || `Destacado #2 - Item ${i + 1}`,
-          thumbnail: v.thumbnail,
-          duration: v.duration || '0:23',
-          views: v.views || '11.4K',
-          likes: v.likes || '178',
-          download_url: v.play_url || v.url,
-          music_url: v.music_url || ''
-        }))
+        items: videos.slice(1, 7).map((v, i) => {
+          const isImg = Boolean((v as any).is_image || (v as any).images?.length > 0 || v.duration === 'Foto' || v.duration === 0);
+          return {
+            id: `hl_item_2_${i}`,
+            url: v.url,
+            title: v.title || `Destacado #2 - Item ${i + 1}`,
+            thumbnail: v.thumbnail,
+            duration: isImg ? 'Foto' : (v.duration || '0:23'),
+            views: v.views || '11.4K',
+            likes: v.likes || '178',
+            download_url: v.url,
+            music_url: isImg ? '' : (v.music_url || ''),
+            is_image: isImg
+          };
+        })
       },
       {
         id: 'hl_clash_3',
         title: 'Momentos',
         cover: v2.thumbnail || 'https://p16-common-sign.tiktokcdn-us.com/tos-useast2a-p-0037-euttp/oIZgTj6PAQrIehMVj2iDGeq7vEISEBFnBjWzfD~tplv-tiktokx-origin.image',
         count: Math.min(Math.max(1, videos.length - 2), 5),
-        items: videos.slice(2, 7).map((v, i) => ({
-          id: `hl_item_3_${i}`,
-          url: v.url,
-          title: v.title || `Destacado #3 - Item ${i + 1}`,
-          thumbnail: v.thumbnail,
-          duration: v.duration || '0:56',
-          views: v.views || '199.8K',
-          likes: v.likes || '12.5K',
-          download_url: v.play_url || v.url,
-          music_url: v.music_url || ''
-        }))
+        items: videos.slice(2, 7).map((v, i) => {
+          const isImg = Boolean((v as any).is_image || (v as any).images?.length > 0 || v.duration === 'Foto' || v.duration === 0);
+          return {
+            id: `hl_item_3_${i}`,
+            url: v.url,
+            title: v.title || `Destacado #3 - Item ${i + 1}`,
+            thumbnail: v.thumbnail,
+            duration: isImg ? 'Foto' : (v.duration || '0:56'),
+            views: v.views || '199.8K',
+            likes: v.likes || '12.5K',
+            download_url: v.url,
+            music_url: isImg ? '' : (v.music_url || ''),
+            is_image: isImg
+          };
+        })
       }
     ];
   }
@@ -341,7 +353,39 @@ export async function POST(request: Request) {
 
       if (resp.ok) {
         const data = await resp.json();
-        // Enriquecer con colecciones destacadas
+
+        // 1. Sanitizar historias para garantizar enlace canónico de alta calidad y JPEG compatible
+        if (data.stories && Array.isArray(data.stories)) {
+          data.stories = data.stories.map((s: any) => {
+            const isImg = Boolean(s.is_image || (s.images && s.images.length > 0) || s.duration === 'Foto' || s.duration === 0);
+            const canonicalUrl = isImg 
+              ? `https://www.tiktok.com/@${username}/photo/${s.id}` 
+              : `https://www.tiktok.com/@${username}/video/${s.id}`;
+            return {
+              ...s,
+              is_image: isImg,
+              duration: isImg ? 'Foto' : (s.duration || '0:15'),
+              url: canonicalUrl,
+              download_url: canonicalUrl, // Garantiza que triggerDownload obtenga el JPEG JFIF genuino de 357KB
+              music_url: isImg ? '' : (s.music_url || '')
+            };
+          });
+        }
+
+        // 2. Sanitizar videos de publicaciones
+        if (data.videos && Array.isArray(data.videos)) {
+          data.videos = data.videos.map((v: any) => {
+            const isImg = Boolean(v.is_image || (v.images && v.images.length > 0) || v.duration === 'Foto' || v.duration === 0);
+            return {
+              ...v,
+              is_image: isImg,
+              duration: isImg ? 'Foto' : (v.duration || '0:15'),
+              music_url: isImg ? '' : (v.music_url || '')
+            };
+          });
+        }
+
+        // 3. Enriquecer con colecciones destacadas
         if (!data.highlights || data.highlights.length === 0) {
           data.highlights = buildHighlightsForUser(username, data.videos || []);
         }

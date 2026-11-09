@@ -661,37 +661,51 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                             {item.title || `Item #${itemIdx + 1}`}
                           </span>
                           
-                          {/* Descarga Individual con Selector de Formato en Full HD */}
+                          {/* Descarga Individual Inteligente (Fotos solo JPG HD, Videos en MP4/Mute/MP3) */}
                           <div className="flex flex-col gap-1 pt-1 border-t border-slate-800">
-                            <button
-                              type="button"
-                              onClick={() => triggerDownload(item.download_url || item.url, `destacado_${selectedHighlight.title}_${itemIdx + 1}.mp4`, 'Video Full HD 1080p', false)}
-                              className="w-full py-1.5 px-2 rounded bg-sky-500 hover:bg-sky-400 text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors"
-                            >
-                              <Download className="w-3 h-3" />
-                              <span>MP4 Full HD</span>
-                            </button>
-                            <div className="grid grid-cols-2 gap-1">
+                            {Boolean((item as any).is_image || item.duration === 'Foto') ? (
                               <button
                                 type="button"
-                                onClick={() => triggerDownload(item.download_url || item.url, `destacado_mudo_${itemIdx + 1}.mp4`, 'Video Sin Sonido', false)}
-                                className="py-1 px-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-semibold flex items-center justify-center gap-0.5 transition-colors"
+                                onClick={() => triggerDownload(item.url || item.download_url || '', `destacado_${data.username}_${itemIdx + 1}.jpg`, 'Foto en Alta Definición (JPG)', false)}
+                                className="w-full py-1.5 px-2 rounded bg-sky-500 hover:bg-sky-400 text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors"
                               >
-                                <VolumeX className="w-2.5 h-2.5" />
-                                <span>Sin Sonido</span>
+                                <Download className="w-3 h-3" />
+                                <span>Descargar Foto HD (JPG)</span>
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const audUrl = item.music_url || item.download_url || item.url;
-                                  triggerDownload(audUrl, `destacado_audio_${itemIdx + 1}.mp3`, 'Audio MP3', true);
-                                }}
-                                className="py-1 px-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-semibold flex items-center justify-center gap-0.5 transition-colors"
-                              >
-                                <Music className="w-2.5 h-2.5" />
-                                <span>Audio MP3</span>
-                              </button>
-                            </div>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => triggerDownload(item.url || item.download_url || '', `destacado_${data.username}_${itemIdx + 1}.mp4`, 'Video Full HD 1080p', false)}
+                                  className="w-full py-1.5 px-2 rounded bg-sky-500 hover:bg-sky-400 text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors"
+                                >
+                                  <Download className="w-3 h-3" />
+                                  <span>MP4 Full HD</span>
+                                </button>
+                                <div className={`grid ${item.music_url ? 'grid-cols-2' : 'grid-cols-1'} gap-1`}>
+                                  <button
+                                    type="button"
+                                    onClick={() => triggerDownload(item.url || item.download_url || '', `destacado_mudo_${data.username}_${itemIdx + 1}.mp4`, 'Video Sin Sonido', false)}
+                                    className="py-1 px-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-semibold flex items-center justify-center gap-0.5 transition-colors"
+                                  >
+                                    <VolumeX className="w-2.5 h-2.5" />
+                                    <span>Sin Sonido</span>
+                                  </button>
+                                  {item.music_url && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        triggerDownload(item.music_url || '', `destacado_audio_${data.username}_${itemIdx + 1}.mp3`, 'Audio MP3', true);
+                                      }}
+                                      className="py-1 px-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-semibold flex items-center justify-center gap-0.5 transition-colors"
+                                    >
+                                      <Music className="w-2.5 h-2.5" />
+                                      <span>Audio MP3</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>

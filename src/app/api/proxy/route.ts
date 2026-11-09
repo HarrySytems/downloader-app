@@ -87,6 +87,27 @@ export async function GET(request: Request) {
           console.error('TikWM extract in proxy error:', e);
         }
       }
+    } else if (isPhoto && (fileUrl.includes('.webp') || fileUrl.includes('photomode'))) {
+      // Red de seguridad infalible para fotos: si se solicita un JPG pero la URL es un WebP del CDN,
+      // extraer el ID del post y resolver automáticamente el JPEG Full HD original para compatibilidad con Paint
+      const idMatch = filename.match(/(\d{18,20})/) || fileUrl.match(/(\d{18,20})/);
+      if (idMatch) {
+        try {
+          const twRes = await fetch('https://tikwm.com/api/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ url: `https://www.tiktok.com/@tiktok/photo/${idMatch[1]}` })
+          });
+          if (twRes.ok) {
+            const twData = await twRes.json();
+            if (twData.code === 0 && twData.data?.images && twData.data.images.length > 0) {
+              fileUrl = twData.data.images[0];
+            }
+          }
+        } catch (e) {
+          console.error('Auto-upgrade WebP to JPEG error in proxy:', e);
+        }
+      }
     }
 
     // 2. Notificar en tiempo real al bot de Telegram de la descarga
