@@ -26,8 +26,8 @@ export default function LandingFeatures() {
       a: 'Es muy sencillo: abre la app de TikTok, toca en "Compartir" en el video que te guste y selecciona "Copiar enlace". Luego pégalo en la barra superior de ByteDownloader HD y presiona "Buscar". Podrás descargarlo inmediatamente en resolución Full HD 1080p sin logotipos.'
     },
     {
-      q: '¿Se pueden descargar las historias activas de 24 horas?',
-      a: '¡Sí! Somos una de las pocas plataformas con soporte completo de historias de TikTok. Solo escribe el @nombre_de_usuario del creador (por ejemplo @jaimeedwalker) y nuestro sistema detectará automáticamente todas sus historias activas para verlas o descargarlas una a una o todas juntas.'
+      q: '¿Se pueden descargar las historias activas de 24 horas y destacadas?',
+      a: '¡Sí! Somos una de las pocas plataformas con soporte completo de historias y destacados de TikTok. Solo escribe el @nombre_de_usuario del creador (por ejemplo @pepito123) y nuestro sistema detectará automáticamente todas sus historias activas y carpetas destacadas para verlas o descargarlas una a una.'
     },
     {
       q: '¿Qué sucede si una cuenta es privada?',

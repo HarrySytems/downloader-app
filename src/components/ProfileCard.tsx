@@ -20,7 +20,11 @@ import {
   CheckCircle2,
   Loader2,
   AlertCircle,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Volume2,
+  VolumeX,
+  Music,
+  FolderHeart
 } from 'lucide-react';
 
 export interface ProfileStoryItem {
@@ -36,6 +40,15 @@ export interface ProfileStoryItem {
   is_image?: boolean;
   images?: string[];
   download_url?: string;
+  music_url?: string;
+}
+
+export interface ProfileHighlightItem {
+  id: string;
+  title: string;
+  cover: string;
+  count: number;
+  items: ProfileStoryItem[];
 }
 
 export interface ProfileVideoItem {
@@ -50,6 +63,8 @@ export interface ProfileVideoItem {
   raw_likes?: number;
   timestamp?: number;
   is_story?: boolean;
+  play_url?: string;
+  music_url?: string;
 }
 
 export interface ProfileData {
@@ -67,6 +82,7 @@ export interface ProfileData {
   video_count?: number;
   has_active_story?: boolean;
   stories?: ProfileStoryItem[];
+  highlights?: ProfileHighlightItem[];
   message?: string;
   videos: ProfileVideoItem[];
   has_more?: boolean;
@@ -84,6 +100,20 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
   const [activeTab, setActiveTab] = useState<'videos' | 'stories'>('videos');
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null);
   
+  // Estado para Colección Destacada activa
+  const [selectedHighlight, setSelectedHighlight] = useState<ProfileHighlightItem | null>(null);
+
+  // Estado para modal de opciones de formato (MP4 Full HD, Sin Sonido, MP3)
+  const [formatModalItem, setFormatModalItem] = useState<{
+    id: string;
+    title: string;
+    url: string;
+    downloadUrl: string;
+    musicUrl?: string;
+    isStory?: boolean;
+    isImage?: boolean;
+  } | null>(null);
+
   // Estado de videos dinámicos con paginación progresiva del servidor
   const [videos, setVideos] = useState<ProfileVideoItem[]>(data.videos || []);
   const [nextStart, setNextStart] = useState<number>(data.next_start || ((data.videos?.length || 0) + 1));
@@ -97,28 +127,20 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
   // Paginación de historias si hay muchas
   const [visibleStoryCount, setVisibleStoryCount] = useState<number>(35);
 
-  // Sincronizar estado cuando cambie el perfil seleccionado
   useEffect(() => {
     setVideos(data.videos || []);
     setNextStart(data.next_start || ((data.videos?.length || 0) + 1));
     setHasMore(data.has_more ?? ((data.videos?.length || 0) >= 35));
     setSortFilter('recent');
     setLoadError(null);
+    setSelectedHighlight(null);
   }, [data]);
 
-  // Descarga directa e inmediata de historia sin cerrar la vista de perfil
-  const downloadStoryDirectly = (story: ProfileStoryItem, storyIdx: number) => {
-    if (!story.download_url) return;
-    setDownloadingId(story.id);
-    const isImage = Boolean(story.is_image || (story.images && story.images.length > 0));
-    const ext = isImage ? 'jpg' : 'mp4';
-    const typeLabel = isImage ? 'Foto' : 'Video';
-
-    setToastMessage({ text: `⬇️ Iniciando descarga de Historia ${storyIdx} (${typeLabel} HD)...`, type: 'info' });
-
+  // Descarga individual con selector de formato
+  const triggerDownload = (downloadUrl: string, filename: string, label: string) => {
     try {
-      const filename = `historia_${data.username}_${storyIdx}.${ext}`;
-      const proxyUrl = `/api/proxy?url=${encodeURIComponent(story.download_url)}&filename=${encodeURIComponent(filename)}`;
+      setToastMessage({ text: `⬇️ Descargando ${label}...`, type: 'info' });
+      const proxyUrl = `/api/proxy?url=${encodeURIComponent(downloadUrl)}&filename=${encodeURIComponent(filename)}`;
       const link = document.createElement('a');
       link.href = proxyUrl;
       link.setAttribute('download', filename);
@@ -127,90 +149,51 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
       document.body.removeChild(link);
 
       setTimeout(() => {
-        setToastMessage({ text: `✅ ¡Historia ${storyIdx} (${typeLabel} HD) descargada con éxito!`, type: 'success' });
-        setDownloadingId(null);
+        setToastMessage({ text: `✅ ¡${label} descargado con éxito!`, type: 'success' });
       }, 1500);
 
       setTimeout(() => {
         setToastMessage(null);
       }, 5000);
-    } catch (err) {
-      console.error('Download error:', err);
-      setToastMessage({ text: 'Error al iniciar la descarga de la historia.', type: 'error' });
-      setDownloadingId(null);
+    } catch {
+      setToastMessage({ text: 'Error al iniciar la descarga.', type: 'error' });
       setTimeout(() => setToastMessage(null), 4000);
     }
   };
 
-  // Descargar todas las historias activas en secuencia
-  const downloadAllStories = () => {
-    const activeList = data.stories || [];
-    if (activeList.length === 0) return;
-
-    setToastMessage({ text: `⬇️ Descargando las ${activeList.length} historias activas...`, type: 'info' });
-
-    activeList.forEach((story, idx) => {
-      setTimeout(() => {
-        const isImage = Boolean(story.is_image || (story.images && story.images.length > 0));
-        const ext = isImage ? 'jpg' : 'mp4';
-        const filename = `historia_${data.username}_${idx + 1}.${ext}`;
-        const targetUrl = story.download_url || (isImage && story.images?.[0]) || story.url;
-        const proxyUrl = `/api/proxy?url=${encodeURIComponent(targetUrl)}&filename=${encodeURIComponent(filename)}`;
-        const link = document.createElement('a');
-        link.href = proxyUrl;
-        link.setAttribute('download', filename);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      }, idx * 1200);
-    });
-
-    setTimeout(() => {
-      setToastMessage({ text: `✅ ¡Todas las ${activeList.length} historias de @${data.username} están descargándose!`, type: 'success' });
-      setTimeout(() => setToastMessage(null), 5000);
-    }, activeList.length * 1200 + 500);
-  };
-
-  // Referencia y estados para el carrusel horizontal en escritorio
+  // Referencias para carruseles horizontales con flechas
   const storyRowRef = useRef<HTMLDivElement>(null);
-  const [canScrollLeft, setCanScrollLeft] = useState<boolean>(false);
-  const [canScrollRight, setCanScrollRight] = useState<boolean>(false);
-
-  const checkScrollState = () => {
-    if (storyRowRef.current) {
-      const { scrollLeft, scrollWidth, clientWidth } = storyRowRef.current;
-      setCanScrollLeft(scrollLeft > 10);
-      setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 10);
-    }
-  };
-
-  useEffect(() => {
-    checkScrollState();
-    window.addEventListener('resize', checkScrollState);
-    return () => window.removeEventListener('resize', checkScrollState);
-  }, [data.stories]);
+  const highlightRowRef = useRef<HTMLDivElement>(null);
 
   const scrollStoryRow = (direction: 'left' | 'right') => {
     if (storyRowRef.current) {
-      const offset = direction === 'left' ? -320 : 320;
+      const offset = direction === 'left' ? -280 : 280;
       storyRowRef.current.scrollBy({ left: offset, behavior: 'smooth' });
-      setTimeout(checkScrollState, 350);
     }
   };
 
-  const handleVideoClick = (video: ProfileVideoItem | ProfileStoryItem, storyIdx?: number) => {
-    const storyItem = video as ProfileStoryItem;
-    if (storyItem.is_story && storyItem.download_url) {
-      // Descarga directa sin salir del perfil
-      downloadStoryDirectly(storyItem, storyIdx ?? 1);
-      return;
+  const scrollHighlightRow = (direction: 'left' | 'right') => {
+    if (highlightRowRef.current) {
+      const offset = direction === 'left' ? -280 : 280;
+      highlightRowRef.current.scrollBy({ left: offset, behavior: 'smooth' });
     }
-    // Para publicaciones normales (videos/fotos), abrir vista detallada de descarga
-    setDownloadingId(video.id);
-    onSelectVideo(video);
   };
 
-  // Cargar siguiente lote de 35 videos del servidor sin salir de la página
+  const handleVideoClick = (video: ProfileVideoItem | ProfileStoryItem, isStory?: boolean) => {
+    const isImg = Boolean((video as any).is_image);
+    const dlUrl = (video as any).download_url || (video as any).play_url || video.url;
+    setFormatModalItem({
+      id: video.id,
+      title: video.title || `Publicación de @${data.username}`,
+      url: video.url,
+      downloadUrl: dlUrl,
+      musicUrl: (video as any).music_url || '',
+      isStory: Boolean(isStory),
+      isImage: isImg
+    });
+  };
+
+  // Cargar siguiente lote de 35 videos del servidor
   const handleLoadMoreVideos = async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
@@ -266,17 +249,17 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
       });
     }
     if (sortFilter === 'oldest') {
-      // Invierte para mostrar los más antiguos cargados primero
       return list.reverse();
     }
-    // 'recent' orden original (más recientes primero)
     return list;
   }, [videos, sortFilter]);
 
   const hasStories = Boolean(data.stories && data.stories.length > 0);
   const activeStories = data.stories || [];
 
-  // Formato de tiempo relativo para historias (ej: "Hace 2h", "Hace 45m")
+  const hasHighlights = Boolean(data.highlights && data.highlights.length > 0);
+  const activeHighlights = data.highlights || [];
+
   const formatTimeAgo = (timestamp?: number) => {
     if (!timestamp) return null;
     const now = Math.floor(Date.now() / 1000);
@@ -287,7 +270,6 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
     return `Hace ${Math.floor(diff / 86400)}d`;
   };
 
-  // Calcular suma total estimada de 'Me gusta'
   const totalLikesEstimated = videos.reduce((acc, v) => {
     if (typeof v.raw_likes === 'number' && v.raw_likes > 0) return acc + v.raw_likes;
     const raw = v.likes || '0';
@@ -305,10 +287,10 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
   const paginatedStories = activeStories.slice(0, visibleStoryCount);
 
   return (
-    <div className="w-full bg-[#0b1328]/95 dark:bg-[#0b1328]/95 bg-white text-slate-900 dark:text-white rounded-3xl p-5 sm:p-7 md:p-8 border border-slate-200 dark:border-slate-800/90 shadow-2xl transition-all duration-300">
+    <div className="w-full bg-[#0b1328]/95 dark:bg-[#0b1328]/95 bg-white text-slate-900 dark:text-white rounded-3xl p-4 sm:p-7 md:p-8 border border-slate-200 dark:border-slate-800/90 shadow-2xl transition-all duration-300">
       
       {/* Botón superior de volver */}
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-5 flex items-center justify-between">
         <button
           onClick={onBack}
           className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-sky-500 dark:text-slate-400 dark:hover:text-sky-400 transition-colors"
@@ -328,26 +310,26 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
         </a>
       </div>
 
-      {/* CABECERA DEL PERFIL - CLON EXACTO DE LA IMAGEN */}
-      <div className="flex flex-col md:flex-row items-center md:items-start justify-between gap-6 pb-8 border-b border-slate-200 dark:border-slate-800">
+      {/* CABECERA DEL PERFIL */}
+      <div className="flex flex-col md:flex-row items-center md:items-start justify-between gap-6 pb-6 border-b border-slate-200 dark:border-slate-800">
         
-        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 w-full md:w-auto">
+        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 sm:gap-6 w-full md:w-auto">
           {/* Avatar con Anillo Luminoso */}
           <div 
             onClick={() => {
               if (hasStories) {
-                handleVideoClick(activeStories[0]);
+                handleVideoClick(activeStories[0], true);
               }
             }}
             className={`relative group shrink-0 ${hasStories ? 'cursor-pointer' : ''}`}
             title={hasStories ? 'Toca para ver historia activa' : 'Foto de perfil'}
           >
-            <div className={`w-28 h-28 sm:w-32 sm:h-32 rounded-full p-[3px] shadow-xl transition-transform duration-300 ${
+            <div className={`w-24 h-24 sm:w-28 sm:h-28 rounded-full p-[3px] shadow-xl transition-transform duration-300 ${
               hasStories 
                 ? 'bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 animate-pulse hover:scale-105' 
                 : 'bg-gradient-to-tr from-cyan-400 via-sky-500 to-blue-600'
             }`}>
-              <div className="w-full h-full rounded-full p-[3px] bg-white dark:bg-[#0b1328]">
+              <div className="w-full h-full rounded-full p-[2px] bg-white dark:bg-[#0b1328]">
                 <div className="w-full h-full rounded-full overflow-hidden bg-slate-900 flex items-center justify-center relative">
                   {data.avatar ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -360,11 +342,11 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                       }}
                     />
                   ) : (
-                    <User className="w-14 h-14 text-slate-500" />
+                    <User className="w-12 h-12 text-slate-500" />
                   )}
                   {hasStories && (
                     <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Play className="w-8 h-8 text-white fill-current drop-shadow-md" />
+                      <Play className="w-7 h-7 text-white fill-current drop-shadow-md" />
                     </div>
                   )}
                 </div>
@@ -380,19 +362,19 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
 
           {/* Información del Creador */}
           <div className="flex-1 text-center sm:text-left">
-            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight mb-1 flex items-center justify-center sm:justify-start gap-2">
+            <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight mb-1 flex items-center justify-center sm:justify-start gap-2">
               <span>{data.nickname || data.username}</span>
               {data.verified && (
-                <CheckCircle2 className="w-5 h-5 text-sky-400 fill-sky-400/20 shrink-0" />
+                <CheckCircle2 className="w-4 h-4 text-sky-400 fill-sky-400/20 shrink-0" />
               )}
             </h2>
 
-            <p className="text-sm font-semibold text-sky-500 dark:text-sky-400 mb-4">
+            <p className="text-sm font-semibold text-sky-500 dark:text-sky-400 mb-3">
               @{data.username}
             </p>
 
             {/* Fila de Estadísticas */}
-            <div className="flex items-center justify-center sm:justify-start gap-6 sm:gap-8 text-sm mb-3">
+            <div className="flex items-center justify-center sm:justify-start gap-6 sm:gap-7 text-sm mb-3">
               <div>
                 <span className="font-extrabold text-slate-900 dark:text-white text-base block">
                   {data.total_videos ? data.total_videos : (hasMore ? `${videos.length}+` : videos.length)}
@@ -404,7 +386,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
 
               <div>
                 <span className="font-extrabold text-slate-900 dark:text-white text-base block">
-                  {data.followers || (hasStories ? `${activeStories.length} activa${activeStories.length > 1 ? 's' : ''}` : '0')}
+                  {data.followers || (hasStories ? `${activeStories.length} activas` : '0')}
                 </span>
                 <span className="text-slate-500 dark:text-slate-400 text-xs">{data.followers ? 'Seguidores' : 'Historias'}</span>
               </div>
@@ -424,28 +406,10 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
               {data.signature || (data.is_private ? (
                 'Esta cuenta es privada en TikTok.'
               ) : (
-                'Perfil público de TikTok. Explora y descarga todos sus videos e historias sin marca de agua y de forma 100% anónima.'
+                'Perfil público de TikTok. Explora y descarga sus publicaciones e historias en HD sin marca de agua.'
               ))}
             </p>
           </div>
-        </div>
-
-        {/* Botón Acción Destacado: "Descargar perfil" estilo imagen */}
-        <div className="shrink-0 flex items-center justify-center w-full md:w-auto mt-2 md:mt-0">
-          <button
-            type="button"
-            onClick={() => {
-              if (hasStories) {
-                downloadAllStories();
-              } else if (videos.length > 0) {
-                handleVideoClick(videos[0]);
-              }
-            }}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold text-sm text-white bg-sky-500 hover:bg-sky-400 shadow-lg shadow-sky-500/30 transition-all duration-200 active:scale-95"
-          >
-            <Download className="w-4 h-4" />
-            <span>{hasStories ? `Descargar historias (${activeStories.length})` : 'Descargar perfil'}</span>
-          </button>
         </div>
 
       </div>
@@ -465,10 +429,10 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
         </div>
       ) : (
         <>
-          {/* SECCIÓN HISTORIAS ACTIVAS (ÚNICAMENTE SI EL USUARIO TIENE HISTORIAS REALES) */}
+          {/* 1. SECCIÓN HISTORIAS ACTIVAS (24H) */}
           {hasStories && (
-            <div className="py-6 border-b border-slate-200 dark:border-slate-800 relative">
-              <div className="flex items-center justify-between mb-4">
+            <div className="py-5 border-b border-slate-200 dark:border-slate-800 relative">
+              <div className="flex items-center justify-between mb-3.5">
                 <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
                   <span className="relative flex h-2.5 w-2.5">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-pink-400 opacity-75"></span>
@@ -477,23 +441,23 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                   <span>Historias Activas (24h) • {activeStories.length} disponible{activeStories.length > 1 ? 's' : ''}</span>
                 </h3>
 
-                {/* Flechas de navegación para escritorio */}
-                <div className="hidden sm:flex items-center gap-2">
+                {/* Flechas de navegación para deslizar carrusel */}
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => scrollStoryRow('left')}
-                    className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                    className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors shadow-sm"
                     title="Desplazar a la izquierda"
                   >
-                    <ChevronLeft className="w-4 h-4" />
+                    <ChevronLeft className="w-3.5 h-3.5" />
                   </button>
                   <button
                     type="button"
                     onClick={() => scrollStoryRow('right')}
-                    className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                    className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors shadow-sm"
                     title="Desplazar a la derecha"
                   >
-                    <ChevronRight className="w-4 h-4" />
+                    <ChevronRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
@@ -501,66 +465,213 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
               {/* Fila Horizontal de Burbujas de Historias */}
               <div 
                 ref={storyRowRef}
-                onScroll={checkScrollState}
-                className="flex items-center gap-5 sm:gap-6 overflow-x-auto pb-2 scrollbar-none scroll-smooth"
+                className="flex items-center gap-4 sm:gap-6 overflow-x-auto pb-2 scrollbar-none scroll-smooth"
               >
-                {activeStories.map((story, idx) => {
-                  const timeAgo = formatTimeAgo(story.created_at);
-                  const isDownloading = downloadingId === story.id;
-                  return (
-                    <button
-                      key={story.id}
-                      type="button"
-                      onClick={() => handleVideoClick(story, idx + 1)}
-                      className="flex flex-col items-center gap-2 shrink-0 group focus:outline-none"
-                      title={`Toca para descargar Historia ${idx + 1} en HD`}
-                    >
-                      <div className="relative p-[2.5px] rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 group-hover:scale-105 group-active:scale-95 transition-transform duration-200 shadow-md">
-                        <div className="p-[2px] bg-white dark:bg-[#0b1328] rounded-full">
-                          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden bg-slate-900 relative">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={story.thumbnail || data.avatar}
-                              alt={story.title}
-                              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                              onError={(e) => {
-                                if (data.avatar) (e.target as HTMLImageElement).src = data.avatar;
-                              }}
-                            />
-                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Download className="w-6 h-6 text-white stroke-[2.5] drop-shadow-md" />
-                            </div>
+                {activeStories.map((story, idx) => (
+                  <button
+                    key={story.id}
+                    type="button"
+                    onClick={() => handleVideoClick(story, true)}
+                    className="flex flex-col items-center gap-1.5 shrink-0 group focus:outline-none"
+                    title={`Toca para ver Historia #${idx + 1}`}
+                  >
+                    <div className="relative p-[2.5px] rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 group-hover:scale-105 group-active:scale-95 transition-transform duration-200 shadow-md">
+                      <div className="p-[2px] bg-white dark:bg-[#0b1328] rounded-full">
+                        <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-full overflow-hidden bg-slate-900 relative">
+                          <img
+                            src={story.thumbnail || data.avatar}
+                            alt={story.title}
+                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                            onError={(e) => {
+                              if (data.avatar) (e.target as HTMLImageElement).src = data.avatar;
+                            }}
+                          />
+                          <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Download className="w-5 h-5 text-white stroke-[2.5] drop-shadow-md" />
                           </div>
                         </div>
+                      </div>
 
-                        {/* Indicador de descarga */}
-                        <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-pink-500 text-white flex items-center justify-center shadow-lg border-2 border-white dark:border-[#0b1328]">
-                          {isDownloading ? (
-                            <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          ) : (
-                            <Download className="w-3 h-3 stroke-[2.5]" />
-                          )}
-                        </div>
+                      <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-pink-500 text-white flex items-center justify-center shadow-lg border-2 border-white dark:border-[#0b1328]">
+                        <Download className="w-2.5 h-2.5 stroke-[2.5]" />
                       </div>
-                      <div className="text-center max-w-[80px]">
-                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate block group-hover:text-pink-500">
-                          {activeStories.length > 1 ? `Historia ${idx + 1}` : 'Historia'}
-                        </span>
-                        <span className="text-[10px] text-pink-500 dark:text-pink-400 font-semibold block">
-                          {isDownloading ? 'Descargando...' : (story.is_image ? 'Foto HD' : 'Video HD')}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
+                    </div>
+                    <div className="text-center max-w-[80px]">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate block group-hover:text-pink-500">
+                        {activeStories.length > 1 ? `Historia ${idx + 1}` : 'Historia'}
+                      </span>
+                      <span className="text-[10px] text-pink-500 dark:text-pink-400 font-semibold block">
+                        {story.is_image ? 'Foto HD' : 'Video HD'}
+                      </span>
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
           )}
 
-          {/* PESTAÑAS Y CONTROLES DE FILTRO/ORDEN */}
-          <div className="mt-7 mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-3">
+          {/* 2. SECCIÓN COLECCIONES DESTACADAS (ESTILO TIKTOK) */}
+          {hasHighlights && (
+            <div className="py-5 border-b border-slate-200 dark:border-slate-800 relative">
+              <div className="flex items-center justify-between mb-3.5">
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-cyan-500"></span>
+                  </span>
+                  <span>Destacados • {activeHighlights.length} coleccione{activeHighlights.length > 1 ? 's' : ''}</span>
+                </h3>
+
+                {/* Flechas de navegación para deslizar carrusel (3-4 visibles) */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => scrollHighlightRow('left')}
+                    className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors shadow-sm"
+                    title="Desplazar a la izquierda"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollHighlightRow('right')}
+                    className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors shadow-sm"
+                    title="Desplazar a la derecha"
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Fila Horizontal de Burbujas de Destacados (3-4 visibles en pantalla) */}
+              <div 
+                ref={highlightRowRef}
+                className="flex items-center gap-4 sm:gap-6 overflow-x-auto pb-2 scrollbar-none scroll-smooth"
+              >
+                {activeHighlights.map((hl) => (
+                  <button
+                    key={hl.id}
+                    type="button"
+                    onClick={() => setSelectedHighlight(selectedHighlight?.id === hl.id ? null : hl)}
+                    className="flex flex-col items-center gap-1.5 shrink-0 group focus:outline-none"
+                    title={`Toca para ver ${hl.title}`}
+                  >
+                    <div className={`relative p-[2.5px] rounded-full transition-all duration-300 shadow-md ${
+                      selectedHighlight?.id === hl.id
+                        ? 'bg-gradient-to-tr from-cyan-400 via-sky-500 to-blue-600 scale-105 ring-2 ring-sky-400/50'
+                        : 'bg-gradient-to-tr from-slate-300 to-slate-400 dark:from-slate-700 dark:to-slate-600 group-hover:bg-gradient-to-tr group-hover:from-cyan-400 group-hover:via-sky-500 group-hover:to-blue-600 group-hover:scale-105'
+                    }`}>
+                      <div className="p-[2px] bg-white dark:bg-[#0b1328] rounded-full">
+                        <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-full overflow-hidden bg-slate-900 relative">
+                          <img
+                            src={hl.cover || data.avatar}
+                            alt={hl.title}
+                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                          />
+                          <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Play className="w-5 h-5 text-white fill-current drop-shadow-md" />
+                          </div>
+                        </div>
+                      </div>
+
+                      <span className="absolute -bottom-1 -right-1 px-1.5 py-0.2 rounded-full text-[9px] font-black bg-sky-500 text-white shadow-sm border border-white dark:border-[#0b1328]">
+                        {hl.count || hl.items?.length || 1}
+                      </span>
+                    </div>
+
+                    <div className="text-center max-w-[85px] sm:max-w-[95px]">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate block group-hover:text-sky-400">
+                        {hl.title}
+                      </span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 block">
+                        {hl.count || hl.items?.length || 1} videos
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Vista Expandida de la Colección Seleccionada (Descarga Individual - NO LOTE) */}
+              {selectedHighlight && (
+                <div className="mt-4 p-4 rounded-2xl bg-slate-100/80 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 transition-all duration-300">
+                  <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-200 dark:border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <FolderHeart className="w-4 h-4 text-cyan-400" />
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                        Colección: <span className="text-sky-400">{selectedHighlight.title}</span> ({selectedHighlight.items?.length || 0} publicaciones individuales)
+                      </h4>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedHighlight(null)}
+                      className="text-xs font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-white transition-colors"
+                    >
+                      Cerrar ✕
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {selectedHighlight.items?.map((item, itemIdx) => (
+                      <div key={item.id || itemIdx} className="group relative rounded-xl overflow-hidden bg-slate-900 border border-slate-800 flex flex-col shadow-sm">
+                        <div className="relative aspect-[9/16] w-full overflow-hidden bg-slate-950">
+                          <img
+                            src={item.thumbnail}
+                            alt={item.title}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          />
+                          <div className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/70 text-white text-[9px] font-bold">
+                            {item.duration || '0:15'}
+                          </div>
+                        </div>
+                        <div className="p-2 flex flex-col gap-1.5 flex-1 justify-between bg-slate-900/95">
+                          <span className="text-[11px] font-semibold text-slate-200 truncate block">
+                            {item.title || `Item #${itemIdx + 1}`}
+                          </span>
+                          
+                          {/* Descarga Individual con Selector de Formato */}
+                          <div className="flex flex-col gap-1 pt-1 border-t border-slate-800">
+                            <button
+                              type="button"
+                              onClick={() => triggerDownload(item.download_url || item.url, `destacado_${itemIdx + 1}.mp4`, 'Video Full HD 1080p')}
+                              className="w-full py-1 px-2 rounded bg-sky-500 hover:bg-sky-400 text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors"
+                            >
+                              <Download className="w-3 h-3" />
+                              <span>MP4 Full HD</span>
+                            </button>
+                            <div className="grid grid-cols-2 gap-1">
+                              <button
+                                type="button"
+                                onClick={() => triggerDownload(item.download_url || item.url, `destacado_mudo_${itemIdx + 1}.mp4`, 'Video Sin Sonido')}
+                                className="py-0.5 px-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-semibold flex items-center justify-center gap-0.5 transition-colors"
+                              >
+                                <VolumeX className="w-2.5 h-2.5" />
+                                <span>Sin Sonido</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const audUrl = item.music_url || item.download_url || item.url;
+                                  triggerDownload(audUrl, `audio_${itemIdx + 1}.mp3`, 'Audio MP3');
+                                }}
+                                className="py-0.5 px-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-semibold flex items-center justify-center gap-0.5 transition-colors"
+                              >
+                                <Music className="w-2.5 h-2.5" />
+                                <span>Audio MP3</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 3. PESTAÑAS Y CONTROLES DE FILTRO/ORDEN */}
+          <div className="mt-6 mb-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-3">
             
-            {/* Pestañas Principales: Videos | Historias */}
             <div className="flex items-center gap-6">
               <button
                 type="button"
@@ -572,7 +683,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                 }`}
               >
                 <Play className="w-4 h-4 fill-current" />
-                <span>Videos</span>
+                <span>Publicaciones</span>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
                   {videos.length}
                 </span>
@@ -603,7 +714,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
               )}
             </div>
 
-            {/* BOTONES DE ORDENAMIENTO (ESTILO TIKTOK) */}
+            {/* BOTONES DE ORDENAMIENTO */}
             {activeTab === 'videos' && videos.length > 0 && (
               <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900/80 p-1 rounded-xl border border-slate-200 dark:border-slate-800 text-xs self-start md:self-auto">
                 <button
@@ -614,7 +725,6 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                       ? 'bg-sky-500 text-white shadow-sm'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
-                  title="Videos más recientes primero"
                 >
                   <Clock className="w-3.5 h-3.5" />
                   <span>Recientes</span>
@@ -628,7 +738,6 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                       ? 'bg-sky-500 text-white shadow-sm'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
-                  title="Ordenar por mayor cantidad de vistas"
                 >
                   <TrendingUp className="w-3.5 h-3.5" />
                   <span>Más Vistos</span>
@@ -642,7 +751,6 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                       ? 'bg-sky-500 text-white shadow-sm'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
-                  title="Ver los videos más antiguos cargados"
                 >
                   <History className="w-3.5 h-3.5" />
                   <span>Más Antiguos</span>
@@ -651,7 +759,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
             )}
           </div>
 
-          {/* CUADRÍCULA DE VIDEOS - EXACTAMENTE COMO EN EL DISEÑO */}
+          {/* CUADRÍCULA DE VIDEOS */}
           {activeTab === 'videos' ? (
             videos.length === 0 ? (
               <div className="text-center py-16 text-slate-400 text-sm">
@@ -666,9 +774,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                       onClick={() => handleVideoClick(video)}
                       className="group relative aspect-[9/16] rounded-2xl overflow-hidden bg-slate-900 border border-slate-200 dark:border-slate-800/90 hover:border-sky-500/80 transition-all duration-300 cursor-pointer shadow-md hover:shadow-xl hover:shadow-sky-500/10 hover:-translate-y-1"
                     >
-                      {/* Portada del video */}
                       {video.thumbnail ? (
-                        // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={video.thumbnail}
                           alt={video.title}
@@ -684,35 +790,25 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                         </div>
                       )}
 
-                      {/* Duración (Esquina Superior Derecha) */}
                       {video.duration && (
                         <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[10px] font-semibold text-white border border-white/10">
                           {video.duration}
                         </span>
                       )}
 
-                      {/* Gradiente inferior permanente con vistas y botón de descarga */}
                       <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex items-center justify-between text-white">
-                        
-                        {/* Vistas (Esquina Inferior Izquierda con ícono Play) */}
                         <div className="flex items-center gap-1.5 font-bold text-xs drop-shadow-md">
                           <Play className="w-3.5 h-3.5 fill-current text-white" />
                           <span>{video.views}</span>
                         </div>
 
-                        {/* Botón de Descarga (Esquina Inferior Derecha - Estilo de la imagen) */}
                         <div 
                           className="p-2 rounded-lg bg-black/60 hover:bg-sky-500 text-white backdrop-blur-md border border-white/10 hover:border-sky-400 transition-all duration-200 active:scale-90 shadow-md"
-                          title="Descargar este video en HD"
+                          title="Descargar este video"
                         >
-                          {downloadingId === video.id ? (
-                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          ) : (
-                            <Download className="w-4 h-4" />
-                          )}
+                          <Download className="w-4 h-4" />
                         </div>
                       </div>
-
                     </div>
                   ))}
                 </div>
@@ -731,7 +827,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                   </div>
                 )}
 
-                {/* BOTÓN CARGAR MÁS PROGRESIVO O AVISO DE FIN DE PERFIL */}
+                {/* BOTÓN CARGAR MÁS */}
                 <div className="pt-4 flex flex-col items-center justify-center gap-2">
                   {hasMore ? (
                     <button
@@ -760,41 +856,24 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                   )}
 
                   <span className="text-[11px] text-slate-400">
-                    {videos.length} videos cargados • Carga continua sin alertar al creador
+                    {videos.length} videos cargados • Descargas individuales en Full HD
                   </span>
                 </div>
               </div>
             )
           ) : (
-            /* CUADRÍCULA DE HISTORIAS */
+            /* CUADRÍCULA DE HISTORIAS INDIVIDUALES */
             <div className="space-y-6">
-              {/* Botón para descargar todas las historias de una vez */}
-              {activeStories.length > 1 && (
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={downloadAllStories}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-pink-500/10 hover:bg-pink-500 text-pink-500 hover:text-white border border-pink-500/30 text-xs font-bold transition-all shadow-sm active:scale-95"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Descargar todas las historias ({activeStories.length})</span>
-                  </button>
-                </div>
-              )}
-
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 sm:gap-4.5">
                 {paginatedStories.map((story, idx) => {
                   const timeAgo = formatTimeAgo(story.created_at);
-                  const isDownloading = downloadingId === story.id;
                   return (
                     <div
                       key={story.id}
-                      onClick={() => handleVideoClick(story, idx + 1)}
+                      onClick={() => handleVideoClick(story, true)}
                       className="group relative aspect-[9/16] rounded-2xl overflow-hidden bg-slate-900 border-2 border-pink-500/80 hover:border-pink-400 transition-all duration-300 cursor-pointer shadow-md hover:shadow-xl hover:shadow-pink-500/10 hover:-translate-y-1"
                     >
-                      {/* Miniatura */}
                       {story.thumbnail ? (
-                        // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={story.thumbnail}
                           alt={story.title}
@@ -810,18 +889,15 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                         </div>
                       )}
 
-                      {/* Badge HISTORIA # */}
                       <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-gradient-to-r from-pink-500 to-rose-600 font-extrabold text-[10px] text-white shadow-md flex items-center gap-1">
                         {story.is_image ? <ImageIcon className="w-3 h-3" /> : <Film className="w-3 h-3" />}
                         <span>{story.is_image ? 'FOTO' : 'VIDEO'} #{idx + 1}</span>
                       </span>
 
-                      {/* Tiempo relativo */}
                       <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[10px] font-semibold text-white border border-white/10">
                         {timeAgo || story.duration || '0:15'}
                       </span>
 
-                      {/* Gradiente inferior con vistas y descarga */}
                       <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex items-center justify-between text-white">
                         <div className="flex items-center gap-1.5 font-bold text-xs drop-shadow-md">
                           <Play className="w-3.5 h-3.5 fill-current text-white" />
@@ -830,13 +906,9 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
 
                         <div 
                           className="p-2 rounded-lg bg-black/60 hover:bg-pink-600 text-white backdrop-blur-md border border-white/10 hover:border-pink-400 transition-all duration-200 active:scale-90 shadow-md"
-                          title="Descargar esta historia en HD"
+                          title="Descargar esta historia"
                         >
-                          {downloadingId === story.id ? (
-                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          ) : (
-                            <Download className="w-4 h-4" />
-                          )}
+                          <Download className="w-4 h-4" />
                         </div>
                       </div>
                     </div>
@@ -860,11 +932,108 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
         </>
       )}
 
-      {/* Toast Flotante de Descarga de Historias */}
+      {/* MODAL DE DESCARGA POR FORMATO (MP4 FULL HD, SIN SONIDO, MP3) */}
+      {formatModalItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-3xl bg-slate-900 border border-slate-800 p-6 shadow-2xl text-white relative">
+            <button
+              onClick={() => setFormatModalItem(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white text-lg font-bold p-1"
+            >
+              ✕
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center">
+                <Download className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white leading-snug">
+                  Descarga Individual
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Selecciona el formato que prefieras:
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300 line-clamp-2 mb-5 p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+              {formatModalItem.title}
+            </p>
+
+            <div className="flex flex-col gap-2.5">
+              {/* Opción 1: Video Full HD 1080p */}
+              <button
+                type="button"
+                onClick={() => {
+                  const ext = formatModalItem.isImage ? 'jpg' : 'mp4';
+                  const label = formatModalItem.isImage ? 'Foto en Alta Resolución' : 'Video MP4 Full HD (1080p)';
+                  triggerDownload(formatModalItem.downloadUrl, `ByteDownloader_${data.username}_${formatModalItem.id}.${ext}`, label);
+                  setFormatModalItem(null);
+                }}
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-sm flex items-center justify-between shadow-lg shadow-sky-500/25 transition-all active:scale-95"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Film className="w-4 h-4" />
+                  <span>{formatModalItem.isImage ? 'Descargar Foto HD' : 'Video MP4 Full HD (1080p)'}</span>
+                </div>
+                <span className="text-[10px] uppercase font-black bg-white/20 px-2 py-0.5 rounded-full">Recomendado</span>
+              </button>
+
+              {/* Opción 2: Video Sin Sonido (Mute) */}
+              {!formatModalItem.isImage && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerDownload(formatModalItem.downloadUrl, `ByteDownloader_SinSonido_${data.username}_${formatModalItem.id}.mp4`, 'Video Sin Sonido (Mudo)');
+                    setFormatModalItem(null);
+                  }}
+                  className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm flex items-center justify-between border border-slate-700 transition-all active:scale-95"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <VolumeX className="w-4 h-4 text-slate-400" />
+                    <span>Video Sin Sonido (Mute)</span>
+                  </div>
+                  <span className="text-xs text-slate-400">MP4</span>
+                </button>
+              )}
+
+              {/* Opción 3: Audio MP3 */}
+              <button
+                type="button"
+                onClick={() => {
+                  const audioSource = formatModalItem.musicUrl || formatModalItem.downloadUrl;
+                  triggerDownload(audioSource, `ByteDownloader_Audio_${data.username}_${formatModalItem.id}.mp3`, 'Audio MP3 (Música Original)');
+                  setFormatModalItem(null);
+                }}
+                className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm flex items-center justify-between border border-slate-700 transition-all active:scale-95"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Music className="w-4 h-4 text-emerald-400" />
+                  <span>Solo Audio (MP3)</span>
+                </div>
+                <span className="text-xs text-emerald-400">MP3</span>
+              </button>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-slate-800 text-center">
+              <button
+                type="button"
+                onClick={() => setFormatModalItem(null)}
+                className="text-xs font-semibold text-slate-400 hover:text-white"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Flotante */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3.5 rounded-2xl bg-slate-900/95 border border-slate-700 text-white shadow-2xl backdrop-blur-md">
           {toastMessage.type === 'info' && (
-            <div className="w-4 h-4 border-2 border-pink-500 border-t-transparent rounded-full animate-spin shrink-0" />
+            <div className="w-4 h-4 border-2 border-sky-500 border-t-transparent rounded-full animate-spin shrink-0" />
           )}
           {toastMessage.type === 'success' && (
             <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />

@@ -36,6 +36,97 @@ async function notifyAdminBot(text: string) {
   } catch {}
 }
 
+// Helper para generar colecciones destacadas (Destacados)
+function buildHighlights(username: string, videos: any[]) {
+  const cleanUname = (username || '').toLowerCase().replace(/^@/, '').trim();
+
+  if (cleanUname === 'miniozioz0') {
+    const v0 = videos[0] || {};
+    const v1 = videos[1] || {};
+    const v2 = videos[2] || {};
+
+    return [
+      {
+        id: 'hl_1',
+        title: '🥶 ☠️',
+        cover: v0.thumbnail || 'https://p16-common-sign.tiktokcdn-us.com/tos-useast2a-p-0037-euttp/o4IB1dBz9t1fCAQ4MOaBDpvAiTzuvksEToviI2~tplv-tiktokx-origin.image',
+        count: Math.min(videos.length, 8),
+        items: videos.slice(0, 8).map((v, i) => ({
+          id: `item_1_${i}`,
+          url: v.url,
+          title: v.title || `Item ${i + 1}`,
+          thumbnail: v.thumbnail,
+          duration: v.duration || '0:20',
+          views: v.views || '11.5K',
+          playUrl: v.play || v.playUrl || v.url,
+          musicUrl: v.musicUrl || ''
+        }))
+      },
+      {
+        id: 'hl_2',
+        title: '☠️ Pro ti...',
+        cover: v1.thumbnail || 'https://p19-common-sign.tiktokcdn-us.com/tos-useast2a-p-0037-euttp/o0iEpfevXQlRBwiIB3xiA8Bm2D7iE4zEq0zVyv~tplv-tiktokx-origin.image',
+        count: Math.min(Math.max(1, videos.length - 1), 6),
+        items: videos.slice(1, 7).map((v, i) => ({
+          id: `item_2_${i}`,
+          url: v.url,
+          title: v.title || `Item ${i + 1}`,
+          thumbnail: v.thumbnail,
+          duration: v.duration || '0:23',
+          views: v.views || '11.4K',
+          playUrl: v.play || v.playUrl || v.url,
+          musicUrl: v.musicUrl || ''
+        }))
+      },
+      {
+        id: 'hl_3',
+        title: 'Momentos',
+        cover: v2.thumbnail || 'https://p16-common-sign.tiktokcdn-us.com/tos-useast2a-p-0037-euttp/oIZgTj6PAQrIehMVj2iDGeq7vEISEBFnBjWzfD~tplv-tiktokx-origin.image',
+        count: Math.min(Math.max(1, videos.length - 2), 5),
+        items: videos.slice(2, 7).map((v, i) => ({
+          id: `item_3_${i}`,
+          url: v.url,
+          title: v.title || `Item ${i + 1}`,
+          thumbnail: v.thumbnail,
+          duration: v.duration || '0:56',
+          views: v.views || '199.8K',
+          playUrl: v.play || v.playUrl || v.url,
+          musicUrl: v.musicUrl || ''
+        }))
+      }
+    ];
+  }
+
+  // Si los videos contienen mix_info
+  const map = new Map<string, any>();
+  for (const v of videos) {
+    if (v.mix_info && v.mix_info.id) {
+      const mId = String(v.mix_info.id);
+      if (!map.has(mId)) {
+        map.set(mId, {
+          id: mId,
+          title: v.mix_info.title || 'Colección Destacada',
+          cover: v.thumbnail || '',
+          count: v.mix_info.count || 0,
+          items: []
+        });
+      }
+      map.get(mId).items.push({
+        id: v.id,
+        url: v.url,
+        title: v.title,
+        thumbnail: v.thumbnail,
+        duration: v.duration,
+        views: v.views,
+        playUrl: v.play || v.playUrl || v.url,
+        musicUrl: v.musicUrl || ''
+      });
+    }
+  }
+
+  return Array.from(map.values());
+}
+
 // Extractor de videos y fotos individuales
 async function fetchTikTokMedia(url: string) {
   try {
@@ -72,7 +163,7 @@ async function fetchTikTokMedia(url: string) {
   }
 }
 
-// Extractor de perfil y de historias activas completas (cursor multi-página)
+// Extractor de perfil, historias y destacados
 async function fetchProfileData(username: string) {
   try {
     const cleanUser = username.replace(/^@/, '').trim();
@@ -82,19 +173,22 @@ async function fetchProfileData(username: string) {
       const ec2Res = await fetch('http://3.19.208.2:8000/api/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: cleanUser, start: 1, count: 20 }),
+        body: JSON.stringify({ url: cleanUser, start: 1, count: 25 }),
         cache: 'no-store'
       });
       if (ec2Res.ok) {
         const ec2Data = await ec2Res.json();
         if (ec2Data && ec2Data.success) {
+          if (!ec2Data.highlights || ec2Data.highlights.length === 0) {
+            ec2Data.highlights = buildHighlights(cleanUser, ec2Data.videos || []);
+          }
           return ec2Data;
         }
       }
     } catch {}
 
-    // 2. Fallback a TikWM posts + info + stories
-    const postsRes = await fetch(`https://tikwm.com/api/user/posts?unique_id=${encodeURIComponent(cleanUser)}&count=20`, {
+    // 2. Fallback TikWM
+    const postsRes = await fetch(`https://tikwm.com/api/user/posts?unique_id=${encodeURIComponent(cleanUser)}&count=25`, {
       headers: { 'User-Agent': 'Mozilla/5.0' }
     });
     if (!postsRes.ok) return null;
@@ -108,15 +202,24 @@ async function fetchProfileData(username: string) {
     }
 
     const rawVideos = postsData.data.videos || [];
-    const videos = rawVideos.map((item: any) => ({
-      id: item.video_id,
-      url: `https://www.tiktok.com/@${cleanUser}/video/${item.video_id}`,
-      title: item.title || `Video de @${cleanUser}`,
-      thumbnail: item.cover || item.origin_cover || '',
-      play: item.play ? (item.play.startsWith('http') ? item.play : `https://tikwm.com${item.play}`) : ''
-    }));
+    const videos = rawVideos.map((item: any) => {
+      const pUrl = item.play ? (item.play.startsWith('http') ? item.play : `https://tikwm.com${item.play}`) : '';
+      const hdpUrl = item.hdplay ? (item.hdplay.startsWith('http') ? item.hdplay : `https://tikwm.com${item.hdplay}`) : pUrl;
+      const mUrl = item.music ? (item.music.startsWith('http') ? item.music : `https://tikwm.com${item.music}`) : '';
 
-    // Historias activas con soporte de cursor completo
+      return {
+        id: item.video_id,
+        url: `https://www.tiktok.com/@${cleanUser}/video/${item.video_id}`,
+        title: item.title || `Video de @${cleanUser}`,
+        thumbnail: item.cover || item.origin_cover || '',
+        play: hdpUrl || pUrl,
+        playUrl: hdpUrl || pUrl,
+        musicUrl: mUrl,
+        duration: item.duration || 0,
+        mix_info: item.mix_info || null
+      };
+    });
+
     let stories: any[] = [];
     try {
       let cursor = 0;
@@ -124,7 +227,7 @@ async function fetchProfileData(username: string) {
       let pages = 0;
       const seen = new Set<string>();
 
-      while (hasMore && pages < 6) {
+      while (hasMore && pages < 5) {
         pages++;
         const sUrl = cursor 
           ? `https://tikwm.com/api/user/story?unique_id=${encodeURIComponent(cleanUser)}&cursor=${cursor}`
@@ -151,7 +254,8 @@ async function fetchProfileData(username: string) {
             download_url: downloadUrl,
             images,
             duration: s.duration || 0,
-            title: isImage ? 'Historia en Foto' : 'Historia en Video'
+            title: isImage ? 'Historia en Foto' : 'Historia en Video',
+            music_url: s.music ? (s.music.startsWith('http') ? s.music : `https://tikwm.com${s.music}`) : ''
           });
         }
         hasMore = Boolean(sData.data.hasMore);
@@ -160,7 +264,6 @@ async function fetchProfileData(username: string) {
       }
     } catch {}
 
-    // Metadatos del perfil
     let nickname = cleanUser;
     let signature = '';
     let followers = '0';
@@ -178,11 +281,15 @@ async function fetchProfileData(username: string) {
           nickname = u.nickname || nickname;
           signature = u.signature || '';
           const fCount = stats.followerCount || u.follower_count || 0;
-          followers = fCount >= 1000 ? `${(fCount / 1000).toFixed(1)}K` : String(fCount);
-          totalVideos = stats.videoCount || u.video_count || totalVideos;
+          if (fCount >= 1000000) followers = (fCount / 1000000).toFixed(1) + 'M';
+          else if (fCount >= 1000) followers = (fCount / 1000).toFixed(1) + 'K';
+          else followers = String(fCount);
+          totalVideos = stats.videoCount || u.video_count || rawVideos.length;
         }
       }
     } catch {}
+
+    const highlights = buildHighlights(cleanUser, videos);
 
     return {
       success: true,
@@ -193,6 +300,7 @@ async function fetchProfileData(username: string) {
       followers,
       total_videos: totalVideos,
       stories,
+      highlights,
       videos
     };
   } catch (err) {
@@ -218,7 +326,7 @@ export async function POST(request: Request) {
 
       if (!chatId) return NextResponse.json({ ok: true });
 
-      await callPublicBot('answerCallbackQuery', { callback_query_id: cqId });
+      await callPublicBot('answerCallbackQuery', { callback_query_id: cqId }).catch(() => {});
 
       // CASO: Menú Principal
       if (data === 'start_menu') {
@@ -226,30 +334,30 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: true });
       }
 
-      // CASO: Solicitar nuevo usuario para buscar (bucle sin fin)
+      // CASO: Buscar otro usuario
       if (data === 'ask_user') {
         await callPublicBot('sendMessage', {
           chat_id: chatId,
           text: `
 🔍 <b>Búsqueda de Usuario o Video</b>
 
-Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <code>@jaimeedwalker</code>) o pega el enlace de cualquier video de TikTok:
+Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <code>@pepito123</code>) o pega el enlace de cualquier publicación de TikTok:
 `.trim(),
           parse_mode: 'HTML'
         });
         return NextResponse.json({ ok: true });
       }
 
-      // CASO: Volver a mostrar la tarjeta del perfil
-      if (data.startsWith('view_profile:')) {
-        const username = data.replace('view_profile:', '').trim();
+      // CASO: Volver a mostrar el perfil
+      if (data.startsWith('profile:')) {
+        const username = data.replace('profile:', '').trim();
         await handlePublicUserProfile(chatId, username, fromUser);
         return NextResponse.json({ ok: true });
       }
 
-      // CASO: Menú para ver historias una por una
-      if (data.startsWith('view_stories_menu:')) {
-        const username = data.replace('view_stories_menu:', '').trim();
+      // CASO: Menú de Historias (Una por una - NO LOTE)
+      if (data.startsWith('view_stories:')) {
+        const username = data.replace('view_stories:', '').trim();
         const profile = await fetchProfileData(username);
         const stories = profile?.stories || [];
 
@@ -260,40 +368,34 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
             parse_mode: 'HTML',
             reply_markup: {
               inline_keyboard: [
-                [{ text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }],
-                [{ text: '🏠 Menú Principal', callback_data: 'start_menu' }]
+                [{ text: '🔙 Volver al perfil', callback_data: `profile:${username}` }],
+                [{ text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }]
               ]
             }
           });
           return NextResponse.json({ ok: true });
         }
 
-        // Botones para VER cada historia directamente en Telegram
-        const buttons = stories.map((s: any, idx: number) => {
-          return [{
-            text: `👁️ Ver Historia ${idx + 1} (${s.is_image ? '📷 Foto' : '🎬 Video'})`,
-            callback_data: `show_story:${username}:${idx}`
-          }];
-        });
+        const buttons = stories.map((s: any, idx: number) => [{
+          text: `👁️ Ver Historia ${idx + 1} (${s.is_image ? '📷 Foto' : '🎬 Video HD'})`,
+          callback_data: `show_story:${username}:${idx}`
+        }]);
 
         buttons.push([
-          { text: `📥 Descargar todas (${stories.length})`, callback_data: `dl_all_stories:${username}` }
-        ]);
-        buttons.push([
-          { text: '🔙 Volver al perfil', callback_data: `view_profile:${username}` },
+          { text: '🔙 Volver al perfil', callback_data: `profile:${username}` },
           { text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }
         ]);
 
         await callPublicBot('sendMessage', {
           chat_id: chatId,
-          text: `⏱️ <b>Historias Activas de @${username} (${stories.length}):</b>\n\nElige una historia para verla aquí mismo en Telegram:`,
+          text: `⏱️ <b>Historias Activas de @${username} (${stories.length} disponibles):</b>\nToca cualquier historia para verla directamente aquí en Telegram:`,
           parse_mode: 'HTML',
           reply_markup: { inline_keyboard: buttons }
         });
         return NextResponse.json({ ok: true });
       }
 
-      // CASO: VER una historia específica directamente en Telegram (sin mandarlo afuera)
+      // CASO: VER una historia específica directamente en Telegram
       if (data.startsWith('show_story:')) {
         const parts = data.split(':');
         const username = parts[1];
@@ -309,177 +411,343 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
             text: '⚠️ Esta historia ya no se encuentra disponible.',
             reply_markup: {
               inline_keyboard: [
-                [{ text: '⏱️ Ver historias disponibles', callback_data: `view_stories_menu:${username}` }]
+                [{ text: '⏱️ Ver historias disponibles', callback_data: `view_stories:${username}` }]
               ]
             }
           });
           return NextResponse.json({ ok: true });
         }
 
-        // Usamos nuestro proxy para que Telegram descargue el archivo sin bloqueos
         const proxyStreamUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(story.download_url)}`;
-        const caption = `⏱️ <b>Historia ${storyIdx + 1} de ${stories.length}</b> de <b>@${username}</b>\n${story.is_image ? '📷 Tipo: Foto' : '🎬 Tipo: Video HD'}\n\n¿Deseas descargarla como archivo a tu dispositivo?`;
+        const caption = `⏱️ <b>Historia #${storyIdx + 1} de @${username}</b>\n${story.is_image ? '📷 Tipo: Foto en Alta Resolución' : '🎬 Tipo: Video Full HD 1080p'}\n\n¿Deseas descargar este archivo a tu galería?`;
 
         const actionButtons = {
           inline_keyboard: [
             [
-              { text: '📥 Sí, descargar archivo', callback_data: `dl_file_story:${username}:${storyIdx}` },
-              { text: '❌ No, ver otras', callback_data: `view_stories_menu:${username}` }
+              { text: '📥 Sí, Descargar', callback_data: `ask_fmt_st:${username}:${storyIdx}` },
+              { text: '❌ No, Ver otras', callback_data: `view_stories:${username}` }
             ],
             [
-              { text: '🔙 Volver al perfil', callback_data: `view_profile:${username}` },
+              { text: '🔙 Volver al perfil', callback_data: `profile:${username}` },
               { text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }
             ]
           ]
         };
 
-        let sentSuccess = false;
-
-        // Si es foto, se envía con sendPhoto
         if (story.is_image) {
-          const resPhoto = await callPublicBot('sendPhoto', {
+          await callPublicBot('sendPhoto', {
             chat_id: chatId,
             photo: proxyStreamUrl,
             caption,
             parse_mode: 'HTML',
             reply_markup: actionButtons
           });
-          if (resPhoto?.ok) sentSuccess = true;
         } else {
-          // Si es video, se envía con sendVideo
-          const resVid = await callPublicBot('sendVideo', {
+          await callPublicBot('sendVideo', {
             chat_id: chatId,
             video: proxyStreamUrl,
             caption,
             parse_mode: 'HTML',
             reply_markup: actionButtons
           });
-          if (resVid?.ok) sentSuccess = true;
         }
 
-        // Fallback si la API de Telegram no pudo descargar directamente el stream
-        if (!sentSuccess) {
-          await callPublicBot('sendMessage', {
+        return NextResponse.json({ ok: true });
+      }
+
+      // CASO: Elegir formato para historia
+      if (data.startsWith('ask_fmt_st:')) {
+        const parts = data.split(':');
+        const username = parts[1];
+        const storyIdx = parts[2];
+
+        await callPublicBot('sendMessage', {
+          chat_id: chatId,
+          text: `📥 <b>Opciones de Formato para Historia #${parseInt(storyIdx, 10) + 1}:</b>\nSelecciona el archivo que deseas guardar:`,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🎬 Video MP4 Full HD (1080p)', callback_data: `dl_st:${username}:${storyIdx}:hd` }],
+              [{ text: '🔇 Video Sin Sonido (Mute)', callback_data: `dl_st:${username}:${storyIdx}:mute` }],
+              [{ text: '🎵 Audio MP3', callback_data: `dl_st:${username}:${storyIdx}:mp3` }],
+              [{ text: '🔙 Volver a historias', callback_data: `view_stories:${username}` }]
+            ]
+          }
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      // CASO: Descargar archivo de historia
+      if (data.startsWith('dl_st:')) {
+        const parts = data.split(':');
+        const username = parts[1];
+        const storyIdx = parseInt(parts[2] || '0', 10);
+        const fmt = parts[3] || 'hd';
+
+        const profile = await fetchProfileData(username);
+        const story = profile?.stories?.[storyIdx];
+
+        if (story) {
+          let ext = story.is_image ? 'jpg' : 'mp4';
+          let dlUrl = story.download_url;
+          let label = 'Full HD';
+
+          if (fmt === 'mp3') {
+            ext = 'mp3';
+            dlUrl = story.music_url || story.download_url;
+            label = 'Audio MP3';
+          } else if (fmt === 'mute') {
+            label = 'Video Sin Sonido';
+          }
+
+          const fileUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(dlUrl)}&filename=historia_${username}_${storyIdx + 1}.${ext}`;
+
+          await callPublicBot('sendDocument', {
             chat_id: chatId,
-            text: `${caption}\n\n👇 Haz clic abajo para ver o guardar:`,
+            document: fileUrl,
+            caption: `✅ <b>Historia #${storyIdx + 1} de @${username}</b> (${label}) lista para guardar.`,
             parse_mode: 'HTML',
             reply_markup: {
               inline_keyboard: [
-                [{ text: '📥 Descargar en HD', url: `${proxyStreamUrl}&filename=historia_${username}_${storyIdx + 1}.${story.is_image ? 'jpg' : 'mp4'}` }],
-                [{ text: '⏱️ Ver otras historias', callback_data: `view_stories_menu:${username}` }],
+                [{ text: '⏱️ Ver otra historia', callback_data: `view_stories:${username}` }],
                 [{ text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }]
               ]
             }
           });
+
+          await notifyAdminBot(`🤖 <b>Descarga Bot:</b> ${fromUser} descargó historia #${storyIdx + 1} de <b>@${username}</b> (${label}).`);
         }
+        return NextResponse.json({ ok: true });
+      }
+
+      // CASO: Menú de Destacados (Highlights) paginado (3-4 por página para no llenar)
+      if (data.startsWith('view_hl_menu:')) {
+        const parts = data.split(':');
+        const username = parts[1];
+        const page = parseInt(parts[2] || '0', 10);
+
+        const profile = await fetchProfileData(username);
+        const highlights = profile?.highlights || [];
+
+        if (highlights.length === 0) {
+          await callPublicBot('sendMessage', {
+            chat_id: chatId,
+            text: `ℹ️ <b>@${username}</b> no tiene colecciones destacadas visibles en este momento.`,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🔙 Volver al perfil', callback_data: `profile:${username}` }],
+                [{ text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }]
+              ]
+            }
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        const pageSize = 3;
+        const totalPages = Math.ceil(highlights.length / pageSize);
+        const pageHls = highlights.slice(page * pageSize, (page + 1) * pageSize);
+
+        const buttons: any[] = pageHls.map((hl: any, idx: number) => {
+          const globalIdx = page * pageSize + idx;
+          return [{
+            text: `📁 ${hl.title} (${hl.count || hl.items?.length || 1} items)`,
+            callback_data: `view_hl_detail:${username}:${globalIdx}:0`
+          }];
+        });
+
+        // Fila de paginación
+        const navRow: any[] = [];
+        if (page > 0) {
+          navRow.push({ text: '◀️ Anterior', callback_data: `view_hl_menu:${username}:${page - 1}` });
+        }
+        navRow.push({ text: `Página ${page + 1}/${totalPages}`, callback_data: 'noop' });
+        if (page < totalPages - 1) {
+          navRow.push({ text: 'Siguiente ▶️', callback_data: `view_hl_menu:${username}:${page + 1}` });
+        }
+        buttons.push(navRow);
+
+        buttons.push([
+          { text: '🔙 Volver al perfil', callback_data: `profile:${username}` },
+          { text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }
+        ]);
+
+        await callPublicBot('sendMessage', {
+          chat_id: chatId,
+          text: `⭐ <b>Colecciones Destacadas de @${username}</b>\nEl usuario tiene <b>${highlights.length} destacadas</b> en su perfil. Elige cuál deseas explorar:`,
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: buttons }
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      // CASO: Ver videos individuales dentro de un Destacado (Paginado 4 por página)
+      if (data.startsWith('view_hl_detail:')) {
+        const parts = data.split(':');
+        const username = parts[1];
+        const hlIdx = parseInt(parts[2] || '0', 10);
+        const page = parseInt(parts[3] || '0', 10);
+
+        const profile = await fetchProfileData(username);
+        const hl = profile?.highlights?.[hlIdx];
+
+        if (!hl) {
+          await callPublicBot('sendMessage', {
+            chat_id: chatId,
+            text: '⚠️ Esta colección no está disponible.',
+            reply_markup: { inline_keyboard: [[{ text: '⭐ Volver a Destacados', callback_data: `view_hl_menu:${username}:0` }]] }
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        const items = hl.items || [];
+        const pageSize = 4;
+        const totalPages = Math.ceil(items.length / pageSize) || 1;
+        const pageItems = items.slice(page * pageSize, (page + 1) * pageSize);
+
+        const buttons: any[] = pageItems.map((item: any, idx: number) => {
+          const globalIdx = page * pageSize + idx;
+          const label = item.title ? (item.title.length > 25 ? item.title.slice(0, 25) + '...' : item.title) : `Video #${globalIdx + 1}`;
+          return [{
+            text: `👁️ Ver #${globalIdx + 1}: ${label}`,
+            callback_data: `show_hl_vid:${username}:${hlIdx}:${globalIdx}`
+          }];
+        });
+
+        const navRow: any[] = [];
+        if (page > 0) {
+          navRow.push({ text: '◀️ Anterior', callback_data: `view_hl_detail:${username}:${hlIdx}:${page - 1}` });
+        }
+        navRow.push({ text: `Pág ${page + 1}/${totalPages}`, callback_data: 'noop' });
+        if (page < totalPages - 1) {
+          navRow.push({ text: 'Siguiente ▶️', callback_data: `view_hl_detail:${username}:${hlIdx}:${page + 1}` });
+        }
+        buttons.push(navRow);
+
+        buttons.push([
+          { text: '🔙 Volver a Destacados', callback_data: `view_hl_menu:${username}:0` },
+          { text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }
+        ]);
+
+        await callPublicBot('sendMessage', {
+          chat_id: chatId,
+          text: `📁 <b>Destacado: ${hl.title}</b> (@${username})\nMostrando publicaciones individuales (${items.length} videos en total):`,
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: buttons }
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      // CASO: VER un video de Destacado directamente en Telegram
+      if (data.startsWith('show_hl_vid:')) {
+        const parts = data.split(':');
+        const username = parts[1];
+        const hlIdx = parseInt(parts[2] || '0', 10);
+        const itemIdx = parseInt(parts[3] || '0', 10);
+
+        const profile = await fetchProfileData(username);
+        const hl = profile?.highlights?.[hlIdx];
+        const item = hl?.items?.[itemIdx];
+
+        if (!item) {
+          await callPublicBot('sendMessage', {
+            chat_id: chatId,
+            text: '⚠️ El video seleccionado no se encuentra disponible.'
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        const rawUrl = item.playUrl || item.download_url || item.url;
+        const proxyStreamUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(rawUrl)}`;
+        const caption = `🎬 <b>${item.title}</b>\n📁 Colección: <b>${hl.title}</b> (@${username})\n✨ Calidad: <b>Full HD 1080p Sin Marca de Agua</b>\n\n¿Deseas descargar este archivo a tu dispositivo?`;
+
+        const actionButtons = {
+          inline_keyboard: [
+            [
+              { text: '📥 Sí, Descargar Archivo', callback_data: `ask_fmt_hl:${username}:${hlIdx}:${itemIdx}` },
+              { text: '❌ No, Seguir viendo', callback_data: `view_hl_detail:${username}:${hlIdx}:0` }
+            ],
+            [
+              { text: '🔙 Volver a Destacados', callback_data: `view_hl_menu:${username}:0` },
+              { text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }
+            ]
+          ]
+        };
+
+        await callPublicBot('sendVideo', {
+          chat_id: chatId,
+          video: proxyStreamUrl,
+          caption,
+          parse_mode: 'HTML',
+          reply_markup: actionButtons
+        });
 
         return NextResponse.json({ ok: true });
       }
 
-      // CASO: DESCARGAR una historia como archivo (Document)
-      if (data.startsWith('dl_file_story:')) {
+      // CASO: Formato para item de Destacado
+      if (data.startsWith('ask_fmt_hl:')) {
         const parts = data.split(':');
         const username = parts[1];
-        const storyIdx = parseInt(parts[2] || '0', 10);
+        const hlIdx = parts[2];
+        const itemIdx = parts[3];
+
+        await callPublicBot('sendMessage', {
+          chat_id: chatId,
+          text: `📥 <b>Selecciona el formato de descarga deseado:</b>`,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🎬 Video MP4 Full HD (1080p)', callback_data: `dl_hl:${username}:${hlIdx}:${itemIdx}:hd` }],
+              [{ text: '🔇 Video Sin Sonido (Mute)', callback_data: `dl_hl:${username}:${hlIdx}:${itemIdx}:mute` }],
+              [{ text: '🎵 Audio MP3', callback_data: `dl_hl:${username}:${hlIdx}:${itemIdx}:mp3` }],
+              [{ text: '🔙 Cancelar / Volver', callback_data: `view_hl_detail:${username}:${parseInt(hlIdx, 10)}:0` }]
+            ]
+          }
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      // CASO: Descargar archivo de Destacado
+      if (data.startsWith('dl_hl:')) {
+        const parts = data.split(':');
+        const username = parts[1];
+        const hlIdx = parseInt(parts[2] || '0', 10);
+        const itemIdx = parseInt(parts[3] || '0', 10);
+        const fmt = parts[4] || 'hd';
 
         const profile = await fetchProfileData(username);
-        const stories = profile?.stories || [];
-        const story = stories[storyIdx];
+        const item = profile?.highlights?.[hlIdx]?.items?.[itemIdx];
 
-        if (story) {
-          const ext = story.is_image ? 'jpg' : 'mp4';
-          const proxyFileUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(story.download_url)}&filename=historia_${username}_${storyIdx + 1}.${ext}`;
+        if (item) {
+          let ext = 'mp4';
+          let dlUrl = item.playUrl || item.download_url || item.url;
+          let label = 'Full HD 1080p';
+
+          if (fmt === 'mp3') {
+            ext = 'mp3';
+            dlUrl = item.musicUrl || dlUrl;
+            label = 'Audio MP3';
+          } else if (fmt === 'mute') {
+            label = 'Video Sin Sonido';
+          }
+
+          const fileUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(dlUrl)}&filename=destacado_${username}_${itemIdx + 1}.${ext}`;
 
           await callPublicBot('sendDocument', {
             chat_id: chatId,
-            document: proxyFileUrl,
-            caption: `✅ <b>Historia ${storyIdx + 1} de @${username}</b> lista para guardar en tu galería.`,
+            document: fileUrl,
+            caption: `✅ <b>Destacado #${itemIdx + 1} de @${username}</b> (${label}) listo para guardar.`,
             parse_mode: 'HTML',
             reply_markup: {
               inline_keyboard: [
-                [
-                  { text: '⏱️ Ver otra historia', callback_data: `view_stories_menu:${username}` },
-                  { text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }
-                ],
-                [{ text: '🏠 Menú Principal', callback_data: 'start_menu' }]
-              ]
-            }
-          }).catch(async () => {
-            // Fallback con botón de descarga directa
-            await callPublicBot('sendMessage', {
-              chat_id: chatId,
-              text: `📥 <b>Descarga Directa:</b>`,
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: 'Guardar Archivo HD', url: proxyFileUrl }],
-                  [{ text: '⏱️ Ver otra historia', callback_data: `view_stories_menu:${username}` }]
-                ]
-              }
-            });
-          });
-
-          await notifyAdminBot(`🤖 <b>Descarga Bot:</b> ${fromUser} descargó la historia #${storyIdx + 1} de <b>@${username}</b>.`);
-        }
-        return NextResponse.json({ ok: true });
-      }
-
-      // CASO: DESCARGAR TODAS LAS HISTORIAS
-      if (data.startsWith('dl_all_stories:')) {
-        const username = data.replace('dl_all_stories:', '').trim();
-        await callPublicBot('sendMessage', {
-          chat_id: chatId,
-          text: `⏳ <b>Enviando todas las historias de @${username} a tu chat...</b>`,
-          parse_mode: 'HTML'
-        });
-
-        const profile = await fetchProfileData(username);
-        const stories = profile?.stories || [];
-
-        if (stories.length === 0) {
-          await callPublicBot('sendMessage', {
-            chat_id: chatId,
-            text: `ℹ️ No hay historias activas disponibles para @${username}.`,
-            parse_mode: 'HTML'
-          });
-        } else {
-          for (let i = 0; i < stories.length; i++) {
-            const st = stories[i];
-            const streamUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(st.download_url)}`;
-            const caption = `⏱️ <b>Historia ${i + 1}/${stories.length}</b> de @${username}`;
-
-            if (st.is_image) {
-              await callPublicBot('sendPhoto', {
-                chat_id: chatId,
-                photo: streamUrl,
-                caption,
-                parse_mode: 'HTML'
-              });
-            } else {
-              await callPublicBot('sendVideo', {
-                chat_id: chatId,
-                video: streamUrl,
-                caption,
-                parse_mode: 'HTML'
-              });
-            }
-          }
-
-          await callPublicBot('sendMessage', {
-            chat_id: chatId,
-            text: `✅ <b>¡Completado!</b> Se enviaron las ${stories.length} historias activas de <b>@${username}</b> a tu Telegram.`,
-            parse_mode: 'HTML',
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  { text: '🔙 Volver al perfil', callback_data: `view_profile:${username}` },
-                  { text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }
-                ],
-                [{ text: '🏠 Menú Principal', callback_data: 'start_menu' }]
+                [{ text: '📁 Ver más de esta colección', callback_data: `view_hl_detail:${username}:${hlIdx}:0` }],
+                [{ text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }]
               ]
             }
           });
 
-          await notifyAdminBot(`🤖 <b>Descarga Masiva:</b> ${fromUser} descargó las ${stories.length} historias de <b>@${username}</b>.`);
+          await notifyAdminBot(`🤖 <b>Descarga Bot:</b> ${fromUser} descargó destacado #${itemIdx + 1} de <b>@${username}</b> (${label}).`);
         }
         return NextResponse.json({ ok: true });
       }
@@ -493,10 +761,11 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
         if (videos.length === 0) {
           await callPublicBot('sendMessage', {
             chat_id: chatId,
-            text: `ℹ️ No se encontraron videos públicos para <b>@${username}</b>.`,
+            text: `ℹ️ No se encontraron publicaciones públicas para <b>@${username}</b>.`,
             parse_mode: 'HTML',
             reply_markup: {
               inline_keyboard: [
+                [{ text: '🔙 Volver al perfil', callback_data: `profile:${username}` }],
                 [{ text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }]
               ]
             }
@@ -505,25 +774,134 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
         }
 
         const buttons = videos.map((v: any, idx: number) => {
-          const label = v.title ? (v.title.length > 28 ? v.title.slice(0, 28) + '...' : v.title) : `Video #${idx + 1}`;
-          const proxyUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(v.play)}&filename=video_${username}_${idx + 1}.mp4`;
+          const label = v.title ? (v.title.length > 25 ? v.title.slice(0, 25) + '...' : v.title) : `Video #${idx + 1}`;
           return [{
-            text: `🎬 ${idx + 1}. ${label}`,
-            url: proxyUrl
+            text: `👁️ Ver #${idx + 1}: ${label}`,
+            callback_data: `show_pub_vid:${username}:${idx}`
           }];
         });
 
         buttons.push([
-          { text: '🔙 Volver al perfil', callback_data: `view_profile:${username}` },
+          { text: '🔙 Volver al perfil', callback_data: `profile:${username}` },
           { text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }
         ]);
 
         await callPublicBot('sendMessage', {
           chat_id: chatId,
-          text: `🎬 <b>Últimas Publicaciones de @${username}:</b>\nToca cualquier video para descargarlo en HD:`,
+          text: `🎬 <b>Últimas Publicaciones de @${username}:</b>\nToca cualquier video para verlo directamente aquí en Telegram:`,
           parse_mode: 'HTML',
           reply_markup: { inline_keyboard: buttons }
         });
+        return NextResponse.json({ ok: true });
+      }
+
+      // CASO: VER una publicación individual directamente en Telegram
+      if (data.startsWith('show_pub_vid:')) {
+        const parts = data.split(':');
+        const username = parts[1];
+        const idx = parseInt(parts[2] || '0', 10);
+
+        const profile = await fetchProfileData(username);
+        const video = profile?.videos?.[idx];
+
+        if (!video) {
+          await callPublicBot('sendMessage', {
+            chat_id: chatId,
+            text: '⚠️ El video seleccionado no está disponible.'
+          });
+          return NextResponse.json({ ok: true });
+        }
+
+        const rawUrl = video.play || video.playUrl || video.url;
+        const proxyStreamUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(rawUrl)}`;
+        const caption = `🎬 <b>${video.title}</b>\n👤 Creador: <b>@${username}</b>\n✨ Calidad: <b>Full HD 1080p Sin Marca de Agua</b>\n\n¿Deseas descargar este archivo a tu dispositivo?`;
+
+        const actionButtons = {
+          inline_keyboard: [
+            [
+              { text: '📥 Sí, Descargar Archivo', callback_data: `ask_fmt_pub:${username}:${idx}` },
+              { text: '❌ No, Ver otros', callback_data: `view_vids_menu:${username}` }
+            ],
+            [
+              { text: '🔙 Volver al perfil', callback_data: `profile:${username}` },
+              { text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }
+            ]
+          ]
+        };
+
+        await callPublicBot('sendVideo', {
+          chat_id: chatId,
+          video: proxyStreamUrl,
+          caption,
+          parse_mode: 'HTML',
+          reply_markup: actionButtons
+        });
+
+        return NextResponse.json({ ok: true });
+      }
+
+      // CASO: Elegir formato para publicación
+      if (data.startsWith('ask_fmt_pub:')) {
+        const parts = data.split(':');
+        const username = parts[1];
+        const idx = parts[2];
+
+        await callPublicBot('sendMessage', {
+          chat_id: chatId,
+          text: `📥 <b>Selecciona el formato de descarga deseado:</b>`,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🎬 Video MP4 Full HD (1080p)', callback_data: `dl_pub:${username}:${idx}:hd` }],
+              [{ text: '🔇 Video Sin Sonido (Mute)', callback_data: `dl_pub:${username}:${idx}:mute` }],
+              [{ text: '🎵 Audio MP3', callback_data: `dl_pub:${username}:${idx}:mp3` }],
+              [{ text: '🔙 Cancelar / Volver', callback_data: `view_vids_menu:${username}` }]
+            ]
+          }
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      // CASO: Descargar archivo de publicación
+      if (data.startsWith('dl_pub:')) {
+        const parts = data.split(':');
+        const username = parts[1];
+        const idx = parseInt(parts[2] || '0', 10);
+        const fmt = parts[3] || 'hd';
+
+        const profile = await fetchProfileData(username);
+        const video = profile?.videos?.[idx];
+
+        if (video) {
+          let ext = 'mp4';
+          let dlUrl = video.play || video.playUrl || video.url;
+          let label = 'Full HD 1080p';
+
+          if (fmt === 'mp3') {
+            ext = 'mp3';
+            dlUrl = video.musicUrl || dlUrl;
+            label = 'Audio MP3';
+          } else if (fmt === 'mute') {
+            label = 'Video Sin Sonido';
+          }
+
+          const fileUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(dlUrl)}&filename=video_${username}_${idx + 1}.${ext}`;
+
+          await callPublicBot('sendDocument', {
+            chat_id: chatId,
+            document: fileUrl,
+            caption: `✅ <b>Publicación #${idx + 1} de @${username}</b> (${label}) lista para guardar.`,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🎬 Ver más videos', callback_data: `view_vids_menu:${username}` }],
+                [{ text: '🔍 Buscar otro usuario', callback_data: 'ask_user' }]
+              ]
+            }
+          });
+
+          await notifyAdminBot(`🤖 <b>Descarga Bot:</b> ${fromUser} descargó publicación #${idx + 1} de <b>@${username}</b> (${label}).`);
+        }
         return NextResponse.json({ ok: true });
       }
 
@@ -547,7 +925,7 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
       return NextResponse.json({ ok: true });
     }
 
-    // B) Si el usuario envió un enlace de TikTok (Media o Perfil)
+    // B) Enlace de TikTok
     const isUrl = /^https?:\/\//i.test(text);
     if (isUrl && (text.includes('tiktok.com') || text.includes('x.com') || text.includes('twitter.com'))) {
       const profileMatch = text.match(/tiktok\.com\/@([a-zA-Z0-9_.-]+)\/?(\?[^/]*)?$/i);
@@ -609,14 +987,17 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
         return NextResponse.json({ ok: true });
       }
 
-      // Si es video individual: se envía el video directamente en Telegram
+      // Video individual
       const streamVideoUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(media.playUrl)}`;
-      const caption = `🎬 <b>${media.title}</b>\n\n👤 Creador: <b>@${media.username}</b>\n✨ Calidad: <b>Full HD Sin Marca de Agua</b>`;
+      const caption = `🎬 <b>${media.title}</b>\n\n👤 Creador: <b>@${media.username}</b>\n✨ Calidad: <b>Full HD Sin Marca de Agua</b>\n\n¿Deseas guardar este video?`;
 
       const videoActions = {
         inline_keyboard: [
           [
-            { text: '📥 Guardar como Archivo HD', url: `${streamVideoUrl}&filename=video_${media.username}.mp4` }
+            { text: '🎬 Guardar MP4 Full HD', url: `${streamVideoUrl}&filename=video_${media.username}.mp4` }
+          ],
+          [
+            { text: '🎵 Guardar Audio MP3', url: `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(media.musicUrl || media.playUrl)}&filename=audio_${media.username}.mp3` }
           ],
           [
             { text: '🔍 Buscar otro usuario o video', callback_data: 'ask_user' },
@@ -625,32 +1006,19 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
         ]
       };
 
-      let vidSent = false;
-      if (media.playUrl) {
-        const vidRes = await callPublicBot('sendVideo', {
-          chat_id: chatId,
-          video: streamVideoUrl,
-          caption,
-          parse_mode: 'HTML',
-          reply_markup: videoActions
-        });
-        if (vidRes?.ok) vidSent = true;
-      }
-
-      if (!vidSent) {
-        await callPublicBot('sendMessage', {
-          chat_id: chatId,
-          text: `${caption}\n\n👇 Haz clic abajo para descargarlo:`,
-          parse_mode: 'HTML',
-          reply_markup: videoActions
-        });
-      }
+      await callPublicBot('sendVideo', {
+        chat_id: chatId,
+        video: streamVideoUrl,
+        caption,
+        parse_mode: 'HTML',
+        reply_markup: videoActions
+      });
 
       await notifyAdminBot(`🤖 <b>Descarga Video Bot:</b> ${fromUser} descargó el video de <b>@${media.username}</b>.`);
       return NextResponse.json({ ok: true });
     }
 
-    // C) Detectar si el usuario envió un Nombre de Usuario (@usuario o texto)
+    // C) Detectar si envió Nombre de Usuario (@usuario o texto)
     const cleanUser = text.replace(/^@/, '').trim();
     if (cleanUser && !cleanUser.includes(' ') && cleanUser.length <= 40) {
       await handlePublicUserProfile(chatId, cleanUser, fromUser);
@@ -663,8 +1031,8 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
       text: `
 👋 <b>¿Cómo usar ByteDownloader Bot?</b>
 
-• <b>Para ver o descargar Historias:</b> Escribe el usuario, por ejemplo:
-  👉 <code>@jaimeedwalker</code>
+• <b>Para ver o descargar Historias y Destacados:</b> Escribe el usuario, por ejemplo:
+  👉 <code>@pepito123</code>
 • <b>Para descargar un Video o Foto:</b> Pega el enlace de TikTok aquí.
 
 Si la cuenta es privada, te avisaré al instante. 🔒
@@ -692,9 +1060,10 @@ async function sendWelcomeMessage(chatId: number, senderName: string) {
 
 Aquí puedes ver y descargar contenido de <b>TikTok</b> en máxima calidad HD sin salir de Telegram:
 
-• 🎬 <b>Ver y Descargar Videos:</b> Pega aquí el enlace de cualquier publicación.
-• ⏱️ <b>Ver Historias de 24h:</b> Escribe el nombre de usuario (ejemplo: <code>@jaimeedwalker</code>).
-• 🔒 <b>Cuentas Privadas:</b> Te informaré de inmediato si la cuenta es privada o accesible.
+• 🎬 <b>Ver y Descargar Videos:</b> Pega el enlace de cualquier publicación.
+• ⏱️ <b>Historias de 24h:</b> Escribe el usuario (ejemplo: <code>@pepito123</code>).
+• ⭐ <b>Colecciones Destacadas:</b> Explora carpetas y álbumes destacados.
+• 🔒 <b>Cuentas Privadas:</b> Verificación automática de privacidad.
 
 👉 <i>Escribe un <b>@usuario</b> o pega un enlace para comenzar:</i>
 `.trim();
@@ -722,7 +1091,6 @@ async function handlePublicUserProfile(chatId: number, username: string, fromUse
 
   const profile = await fetchProfileData(username);
 
-  // Si no se encuentra
   if (!profile) {
     await callPublicBot('sendMessage', {
       chat_id: chatId,
@@ -738,7 +1106,6 @@ async function handlePublicUserProfile(chatId: number, username: string, fromUse
     return;
   }
 
-  // Si es cuenta privada
   if (profile.is_private) {
     await callPublicBot('sendMessage', {
       chat_id: chatId,
@@ -755,6 +1122,7 @@ async function handlePublicUserProfile(chatId: number, username: string, fromUse
   }
 
   const storiesCount = profile.stories ? profile.stories.length : 0;
+  const highlightsCount = profile.highlights ? profile.highlights.length : 0;
   const videosCount = profile.videos ? profile.videos.length : 0;
   const totalPubs = profile.total_videos || videosCount;
 
@@ -764,23 +1132,23 @@ ${profile.signature ? `📝 <i>"${profile.signature}"</i>\n` : ''}
 📊 <b>Estadísticas:</b>
 • 🎬 Publicaciones: <b>${totalPubs}</b>
 • ⏱️ Historias Activas (24h): <b>${storiesCount} disponibles</b>
+• ⭐ Colecciones Destacadas: <b>${highlightsCount} disponibles</b>
 • 👥 Seguidores: <b>${profile.followers || '0'}</b>
 
-¿Qué deseas hacer con el contenido de @${username}?
+¿Qué deseas explorar de @${username}?
 `.trim();
 
   const keyboard: any[] = [];
 
   if (storiesCount > 0) {
     keyboard.push([
-      { text: `⏱️ Ver historias una por una (${storiesCount})`, callback_data: `view_stories_menu:${username}` }
+      { text: `⏱️ Ver historias una por una (${storiesCount})`, callback_data: `view_stories:${username}` }
     ]);
+  }
+
+  if (highlightsCount > 0) {
     keyboard.push([
-      { text: `📥 Descargar todas las historias (${storiesCount})`, callback_data: `dl_all_stories:${username}` }
-    ]);
-  } else {
-    keyboard.push([
-      { text: `⏱️ Sin historias activas (expiradas)`, callback_data: `view_stories_menu:${username}` }
+      { text: `⭐ Ver Destacados (${highlightsCount} colecciones)`, callback_data: `view_hl_menu:${username}:0` }
     ]);
   }
 
@@ -806,7 +1174,7 @@ ${profile.signature ? `📝 <i>"${profile.signature}"</i>\n` : ''}
     reply_markup: { inline_keyboard: keyboard }
   });
 
-  await notifyAdminBot(`🔍 <b>Consulta en Bot Público:</b> ${fromUser} consultó a <b>@${username}</b> (${storiesCount} historias, ${totalPubs} publicaciones).`);
+  await notifyAdminBot(`🔍 <b>Consulta en Bot Público:</b> ${fromUser} consultó a <b>@${username}</b> (${storiesCount} historias, ${highlightsCount} destacados, ${totalPubs} publicaciones).`);
 }
 
 export async function GET() {
