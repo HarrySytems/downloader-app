@@ -197,8 +197,8 @@ async function fetchProfileFromTikWM(username: string, start: number = 1, count:
             const cover = (isImage && images.length > 0 ? images[0] : null) || s.cover || s.origin_cover || '';
 
             let downloadUrl = '';
-            if (isImage && images.length > 0) {
-              downloadUrl = images[0];
+            if (isImage) {
+              downloadUrl = `https://www.tiktok.com/@${username}/photo/${sId}`;
             } else if (s.play) {
               downloadUrl = s.play.startsWith('http') ? s.play : `https://tikwm.com${s.play}`;
             }

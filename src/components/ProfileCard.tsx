@@ -234,7 +234,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
 
     // Para historias o destacados, abrir el modal de opciones de formato
     const isImg = Boolean((video as any).is_image);
-    const dlUrl = (video as any).download_url || (video as any).play_url || video.url;
+    const dlUrl = video.url || (video as any).download_url || (video as any).play_url;
     setFormatModalItem({
       id: video.id,
       title: video.title || `Publicación de @${data.username}`,
@@ -1000,7 +1000,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                 <button
                   type="button"
                   onClick={() => {
-                    const dlUrl = formatModalItem.downloadUrl || formatModalItem.url;
+                    const dlUrl = formatModalItem.url || formatModalItem.downloadUrl;
                     triggerDownload(dlUrl, `ByteDownloader_${data.username}_${formatModalItem.id}.jpg`, 'Foto en Alta Definición (JPG)', false);
                     setFormatModalItem(null);
                   }}
