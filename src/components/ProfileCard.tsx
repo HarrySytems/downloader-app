@@ -136,11 +136,47 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
     setSelectedHighlight(null);
   }, [data]);
 
-  // Descarga individual con selector de formato
-  const triggerDownload = (downloadUrl: string, filename: string, label: string) => {
+  // Descarga individual inteligente con resolución automática de streams Full HD
+  const triggerDownload = async (urlOrStream: string, filename: string, label: string, isAudio?: boolean) => {
     try {
-      setToastMessage({ text: `⬇️ Descargando ${label}...`, type: 'info' });
-      const proxyUrl = `/api/proxy?url=${encodeURIComponent(downloadUrl)}&filename=${encodeURIComponent(filename)}`;
+      setToastMessage({ text: `⬇️ Preparando ${label} en Full HD...`, type: 'info' });
+
+      let targetUrl = urlOrStream;
+
+      // Si es un enlace de página de TikTok, extraer el stream real vía /api/download
+      const isTikTokPage = targetUrl.includes('tiktok.com/@') || 
+                           targetUrl.includes('/video/') || 
+                           targetUrl.includes('/photo/') || 
+                           targetUrl.includes('/story/') || 
+                           targetUrl.includes('/stories/') ||
+                           targetUrl.includes('vm.tiktok.com') ||
+                           targetUrl.includes('vt.tiktok.com');
+      
+      if (isTikTokPage) {
+        try {
+          const res = await fetch('/api/download', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: targetUrl })
+          });
+          if (res.ok) {
+            const resultData = await res.json();
+            if (resultData.success) {
+              if (isAudio && resultData.audioUrl) {
+                targetUrl = resultData.audioUrl;
+              } else if (resultData.videoUrl) {
+                targetUrl = resultData.videoUrl;
+              } else if (resultData.images && resultData.images.length > 0) {
+                targetUrl = resultData.images[0];
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Extraction error:', e);
+        }
+      }
+
+      const proxyUrl = `/api/proxy?url=${encodeURIComponent(targetUrl)}&filename=${encodeURIComponent(filename)}`;
       const link = document.createElement('a');
       link.href = proxyUrl;
       link.setAttribute('download', filename);
@@ -180,6 +216,13 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
   };
 
   const handleVideoClick = (video: ProfileVideoItem | ProfileStoryItem, isStory?: boolean) => {
+    // Si es un video de la cuadrícula normal de publicaciones, abrir el reproductor y descargador de alta calidad
+    if (!isStory && !(video as any).is_story) {
+      onSelectVideo(video);
+      return;
+    }
+
+    // Para historias o destacados, abrir el modal de opciones de formato
     const isImg = Boolean((video as any).is_image);
     const dlUrl = (video as any).download_url || (video as any).play_url || video.url;
     setFormatModalItem({
@@ -591,7 +634,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                 ))}
               </div>
 
-              {/* Vista Expandida de la Colección Seleccionada (Descarga Individual - NO LOTE) */}
+              {/* Vista Expandida de la Colección Seleccionada (Descarga Individual en Full HD) */}
               {selectedHighlight && (
                 <div className="mt-4 p-4 rounded-2xl bg-slate-100/80 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 transition-all duration-300">
                   <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-200 dark:border-slate-800">
@@ -628,12 +671,12 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                             {item.title || `Item #${itemIdx + 1}`}
                           </span>
                           
-                          {/* Descarga Individual con Selector de Formato */}
+                          {/* Descarga Individual con Selector de Formato en Full HD */}
                           <div className="flex flex-col gap-1 pt-1 border-t border-slate-800">
                             <button
                               type="button"
-                              onClick={() => triggerDownload(item.download_url || item.url, `destacado_${itemIdx + 1}.mp4`, 'Video Full HD 1080p')}
-                              className="w-full py-1 px-2 rounded bg-sky-500 hover:bg-sky-400 text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors"
+                              onClick={() => triggerDownload(item.download_url || item.url, `destacado_${selectedHighlight.title}_${itemIdx + 1}.mp4`, 'Video Full HD 1080p', false)}
+                              className="w-full py-1.5 px-2 rounded bg-sky-500 hover:bg-sky-400 text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors"
                             >
                               <Download className="w-3 h-3" />
                               <span>MP4 Full HD</span>
@@ -641,8 +684,8 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                             <div className="grid grid-cols-2 gap-1">
                               <button
                                 type="button"
-                                onClick={() => triggerDownload(item.download_url || item.url, `destacado_mudo_${itemIdx + 1}.mp4`, 'Video Sin Sonido')}
-                                className="py-0.5 px-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-semibold flex items-center justify-center gap-0.5 transition-colors"
+                                onClick={() => triggerDownload(item.download_url || item.url, `destacado_mudo_${itemIdx + 1}.mp4`, 'Video Sin Sonido', false)}
+                                className="py-1 px-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-semibold flex items-center justify-center gap-0.5 transition-colors"
                               >
                                 <VolumeX className="w-2.5 h-2.5" />
                                 <span>Sin Sonido</span>
@@ -651,9 +694,9 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                                 type="button"
                                 onClick={() => {
                                   const audUrl = item.music_url || item.download_url || item.url;
-                                  triggerDownload(audUrl, `audio_${itemIdx + 1}.mp3`, 'Audio MP3');
+                                  triggerDownload(audUrl, `destacado_audio_${itemIdx + 1}.mp3`, 'Audio MP3', true);
                                 }}
-                                className="py-0.5 px-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-semibold flex items-center justify-center gap-0.5 transition-colors"
+                                className="py-1 px-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-semibold flex items-center justify-center gap-0.5 transition-colors"
                               >
                                 <Music className="w-2.5 h-2.5" />
                                 <span>Audio MP3</span>
@@ -804,7 +847,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
 
                         <div 
                           className="p-2 rounded-lg bg-black/60 hover:bg-sky-500 text-white backdrop-blur-md border border-white/10 hover:border-sky-400 transition-all duration-200 active:scale-90 shadow-md"
-                          title="Descargar este video"
+                          title="Descargar este video en Full HD"
                         >
                           <Download className="w-4 h-4" />
                         </div>
@@ -856,7 +899,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                   )}
 
                   <span className="text-[11px] text-slate-400">
-                    {videos.length} videos cargados • Descargas individuales en Full HD
+                    {videos.length} videos cargados • Descargas individuales en Full HD 1080p
                   </span>
                 </div>
               </div>
@@ -968,7 +1011,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                 onClick={() => {
                   const ext = formatModalItem.isImage ? 'jpg' : 'mp4';
                   const label = formatModalItem.isImage ? 'Foto en Alta Resolución' : 'Video MP4 Full HD (1080p)';
-                  triggerDownload(formatModalItem.downloadUrl, `ByteDownloader_${data.username}_${formatModalItem.id}.${ext}`, label);
+                  triggerDownload(formatModalItem.downloadUrl || formatModalItem.url, `ByteDownloader_${data.username}_${formatModalItem.id}.${ext}`, label, false);
                   setFormatModalItem(null);
                 }}
                 className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-sm flex items-center justify-between shadow-lg shadow-sky-500/25 transition-all active:scale-95"
@@ -985,7 +1028,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                 <button
                   type="button"
                   onClick={() => {
-                    triggerDownload(formatModalItem.downloadUrl, `ByteDownloader_SinSonido_${data.username}_${formatModalItem.id}.mp4`, 'Video Sin Sonido (Mudo)');
+                    triggerDownload(formatModalItem.downloadUrl || formatModalItem.url, `ByteDownloader_SinSonido_${data.username}_${formatModalItem.id}.mp4`, 'Video Sin Sonido (Mudo)', false);
                     setFormatModalItem(null);
                   }}
                   className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm flex items-center justify-between border border-slate-700 transition-all active:scale-95"
@@ -1002,8 +1045,8 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
               <button
                 type="button"
                 onClick={() => {
-                  const audioSource = formatModalItem.musicUrl || formatModalItem.downloadUrl;
-                  triggerDownload(audioSource, `ByteDownloader_Audio_${data.username}_${formatModalItem.id}.mp3`, 'Audio MP3 (Música Original)');
+                  const audioSource = formatModalItem.musicUrl || formatModalItem.downloadUrl || formatModalItem.url;
+                  triggerDownload(audioSource, `ByteDownloader_Audio_${data.username}_${formatModalItem.id}.mp3`, 'Audio MP3 (Música Original)', true);
                   setFormatModalItem(null);
                 }}
                 className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm flex items-center justify-between border border-slate-700 transition-all active:scale-95"
