@@ -151,21 +151,24 @@ export async function POST(request: Request) {
       if (tikwmData) {
         const data = tikwmData;
         const images = (data.images || []).map(resolveUrl);
-        const liveImages = (data.live_images || []).map((p: any) => resolveUrl(p)).filter(Boolean);
-        const hasLiveImagesArray = liveImages.length > 0;
+        const liveImagesRaw = (data.live_images || []).map((p: any) => (p ? resolveUrl(p) : ''));
+        const liveImagesNonEmpty = liveImagesRaw.filter(Boolean);
+        const hasLiveImagesArray = liveImagesNonEmpty.length > 0;
         const authorName = data.author?.nickname || data.author?.unique_id || '';
-        
-        // TikTok play URL: en fotos TikWM devuelve el audio en play. Verificar si es audio o video real:
-        const rawPlay = data.play || data.wmplay || '';
-        const isAudioPlay = Boolean(
-          rawPlay.includes('mime_type=audio') || 
-          rawPlay.includes('ies-music') || 
-          (data.music && rawPlay === data.music)
+        const musicResolved = resolveUrl(data.music || '');
+
+        const isAudioUrl = (u?: string) => Boolean(
+          u && (u.includes('mime_type=audio') || u.includes('ies-music') || (data.music && u === data.music))
         );
 
-        // Compatibilidad Total Windows Media Player:
-        // SIEMPRE priorizar 'play' (códec H.264 / avc1 universal) para reproducción nativa inmediata sin requerir la extensión de pago HEVC
-        const validVideoUrl = isAudioPlay ? '' : resolveUrl(data.play || data.wmplay || data.hdplay);
+        // TikTok play URL: en fotos/live photos TikWM suele devolver el audio en play/hdplay.
+        // Priorizar siempre URL de video real H.264 universal para compatibilidad con Windows Media Player.
+        const rawCandidate =
+          (!isAudioUrl(data.play) && data.play) ||
+          (!isAudioUrl(data.wmplay) && data.wmplay) ||
+          (!isAudioUrl(data.hdplay) && data.hdplay) ||
+          '';
+        const validVideoUrl = resolveUrl(rawCandidate);
 
         // CASO 1: FOTO ESTÁTICA ÚNICA (Foto normal de historia o publicación)
         // Regla: una foto normal NO debe tener opción de MP3 ni de video
@@ -190,21 +193,21 @@ export async function POST(request: Request) {
 
         // CASO 2: FOTO ANIMADA (Live Photo / clip corto de 3s en movimiento con audio)
         if (hasLiveImagesArray || (images.length === 1 && validVideoUrl)) {
-          const primaryLiveVideo = liveImages[0] || validVideoUrl;
+          const primaryLiveVideo = liveImagesNonEmpty[0] || validVideoUrl;
           return NextResponse.json({
             success: true,
             platform,
-            title: data.title || 'Foto Animada de TikTok',
+            title: data.title || (isStoryUrl ? 'Historia Animada de TikTok' : 'Foto Animada de TikTok'),
             thumbnail: data.cover || images[0] || '',
             videoUrl: primaryLiveVideo, // Video MP4 animado H.264
-            audioUrl: resolveUrl(data.music),
-            photoUrl: images[0] || '',
+            audioUrl: musicResolved,
+            photoUrl: images[0] || data.cover || '',
             images: images,
-            liveImages: liveImages.length > 0 ? liveImages : [primaryLiveVideo],
+            liveImages: hasLiveImagesArray ? liveImagesRaw : [primaryLiveVideo],
             isLivePhoto: true,
             isStory: isStoryUrl,
             mediaType: 'live_photo',
-            formatLabel: 'Foto Animada (Live Photo · 3s)',
+            formatLabel: isStoryUrl ? 'Historia Animada (Live Photo · 3s)' : 'Foto Animada (Live Photo · 3s)',
             author: authorName
           });
         }

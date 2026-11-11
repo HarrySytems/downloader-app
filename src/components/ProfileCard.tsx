@@ -38,9 +38,12 @@ export interface ProfileStoryItem {
   created_at?: number;
   is_story?: boolean;
   is_image?: boolean;
+  is_live_photo?: boolean;
   images?: string[];
+  live_images?: string[];
   download_url?: string;
   music_url?: string;
+  media_type?: string;
 }
 
 export interface ProfileHighlightItem {
@@ -63,8 +66,13 @@ export interface ProfileVideoItem {
   raw_likes?: number;
   timestamp?: number;
   is_story?: boolean;
+  is_image?: boolean;
+  is_live_photo?: boolean;
+  images?: string[];
+  live_images?: string[];
   play_url?: string;
   music_url?: string;
+  mix_info?: any;
 }
 
 export interface ProfileData {
@@ -103,15 +111,18 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
   // Estado para Colección Destacada activa
   const [selectedHighlight, setSelectedHighlight] = useState<ProfileHighlightItem | null>(null);
 
-  // Estado para modal de opciones de formato (MP4 Full HD, Sin Sonido, MP3)
+  // Estado para modal de opciones de formato (MP4 Full HD, Live Photo Animada, Sin Sonido, MP3)
   const [formatModalItem, setFormatModalItem] = useState<{
     id: string;
     title: string;
     url: string;
     downloadUrl: string;
+    photoUrl?: string;
+    liveImages?: string[];
     musicUrl?: string;
     isStory?: boolean;
     isImage?: boolean;
+    isLivePhoto?: boolean;
   } | null>(null);
 
   // Estado de videos dinámicos con paginación progresiva del servidor
@@ -136,12 +147,20 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
     setSelectedHighlight(null);
   }, [data]);
 
-  // Descarga individual inteligente con resolución automática de streams Full HD
-  const triggerDownload = async (urlOrStream: string, filename: string, label: string, isAudio?: boolean) => {
+  // Descarga individual inteligente con resolución automática de streams Full HD, Live Photos y Mute real
+  const triggerDownload = async (
+    urlOrStream: string,
+    filename: string,
+    label: string,
+    isAudio?: boolean,
+    options?: { mute?: boolean; live?: boolean; audioUrl?: string }
+  ) => {
     try {
       setToastMessage({ text: `⬇️ Preparando ${label}...`, type: 'info' });
 
       let targetUrl = urlOrStream;
+      let resolvedAudioUrl = options?.audioUrl || '';
+      let resolvedIsLive = Boolean(options?.live);
       const lowerName = filename.toLowerCase();
       const isPhotoDownload = lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg') || lowerName.endsWith('.png') || lowerName.endsWith('.webp');
       const isAudioDownload = Boolean(isAudio) || lowerName.endsWith('.mp3');
@@ -165,6 +184,12 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
           if (res.ok) {
             const resultData = await res.json();
             if (resultData.success) {
+              if (resultData.isLivePhoto) {
+                resolvedIsLive = true;
+              }
+              if (resultData.audioUrl && !resolvedAudioUrl) {
+                resolvedAudioUrl = resultData.audioUrl;
+              }
               if (isAudioDownload && resultData.audioUrl) {
                 targetUrl = resultData.audioUrl;
               } else if (isPhotoDownload) {
@@ -186,7 +211,24 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
         }
       }
 
-      const proxyUrl = `/api/proxy?url=${encodeURIComponent(targetUrl)}&filename=${encodeURIComponent(filename)}`;
+      const params = new URLSearchParams({
+        url: targetUrl,
+        filename
+      });
+      if (isAudioDownload) {
+        params.set('format', 'mp3');
+      } else if (!isPhotoDownload) {
+        if (options?.mute) {
+          params.set('mute', '1');
+        } else if (resolvedIsLive || resolvedAudioUrl) {
+          params.set('live', '1');
+          if (resolvedAudioUrl) {
+            params.set('audio', resolvedAudioUrl);
+          }
+        }
+      }
+
+      const proxyUrl = `/api/proxy?${params.toString()}`;
       const link = document.createElement('a');
       link.href = proxyUrl;
       link.setAttribute('download', filename);
@@ -232,17 +274,24 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
       return;
     }
 
-    // Para historias o destacados, abrir el modal de opciones de formato
-    const isImg = Boolean((video as any).is_image);
-    const dlUrl = video.url || (video as any).download_url || (video as any).play_url;
+    // Para historias o destacados, detectar con precisión: Live Photo vs Foto estática vs Video
+    const isLive = Boolean((video as any).is_live_photo || ((video as any).live_images && (video as any).live_images.length > 0));
+    const isImg = !isLive && Boolean((video as any).is_image);
+    const canonicalFallback = isImg
+      ? `https://www.tiktok.com/@${data.username}/photo/${video.id}`
+      : `https://www.tiktok.com/@${data.username}/video/${video.id}`;
+    const dlUrl = video.url || (video as any).download_url || (video as any).play_url || canonicalFallback;
     setFormatModalItem({
       id: video.id,
       title: video.title || `Publicación de @${data.username}`,
-      url: video.url,
+      url: video.url || canonicalFallback,
       downloadUrl: dlUrl,
-      musicUrl: (video as any).music_url || '',
+      photoUrl: (video as any).images?.[0] || video.thumbnail || '',
+      liveImages: (video as any).live_images || [],
+      musicUrl: isImg ? '' : ((video as any).music_url || ''),
       isStory: Boolean(isStory),
-      isImage: isImg
+      isImage: isImg,
+      isLivePhoto: isLive
     });
   };
 
@@ -534,7 +583,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                         {activeStories.length > 1 ? `Historia ${idx + 1}` : 'Historia'}
                       </span>
                       <span className="text-[10px] text-pink-500 dark:text-pink-400 font-semibold block">
-                        {story.is_image ? 'Foto HD' : 'Video HD'}
+                        {story.is_live_photo ? '✨ Animada' : (story.is_image ? 'Foto HD' : 'Video HD')}
                       </span>
                     </div>
                   </button>
@@ -661,51 +710,74 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                             {item.title || `Item #${itemIdx + 1}`}
                           </span>
                           
-                          {/* Descarga Individual Inteligente (Fotos solo JPG HD, Videos en MP4/Mute/MP3) */}
+                          {/* Descarga Individual Inteligente (Live Photos animadas, Fotos solo JPG HD, Videos en MP4/Mute/MP3) */}
                           <div className="flex flex-col gap-1 pt-1 border-t border-slate-800">
-                            {Boolean((item as any).is_image || item.duration === 'Foto') ? (
-                              <button
-                                type="button"
-                                onClick={() => triggerDownload(item.url || item.download_url || '', `destacado_${data.username}_${itemIdx + 1}.jpg`, 'Foto en Alta Definición (JPG)', false)}
-                                className="w-full py-1.5 px-2 rounded bg-sky-500 hover:bg-sky-400 text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors"
-                              >
-                                <Download className="w-3 h-3" />
-                                <span>Descargar Foto HD (JPG)</span>
-                              </button>
-                            ) : (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => triggerDownload(item.url || item.download_url || '', `destacado_${data.username}_${itemIdx + 1}.mp4`, 'Video Full HD 1080p', false)}
-                                  className="w-full py-1.5 px-2 rounded bg-sky-500 hover:bg-sky-400 text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors"
-                                >
-                                  <Download className="w-3 h-3" />
-                                  <span>MP4 Full HD</span>
-                                </button>
-                                <div className={`grid ${item.music_url ? 'grid-cols-2' : 'grid-cols-1'} gap-1`}>
+                            {(() => {
+                              const isItemLive = Boolean((item as any).is_live_photo || ((item as any).live_images && (item as any).live_images.length > 0));
+                              const isItemImg = !isItemLive && Boolean((item as any).is_image || item.duration === 'Foto');
+                              if (isItemImg) {
+                                return (
                                   <button
                                     type="button"
-                                    onClick={() => triggerDownload(item.url || item.download_url || '', `destacado_mudo_${data.username}_${itemIdx + 1}.mp4`, 'Video Sin Sonido', false)}
-                                    className="py-1 px-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-semibold flex items-center justify-center gap-0.5 transition-colors"
+                                    onClick={() => triggerDownload(item.url || item.download_url || '', `destacado_${data.username}_${itemIdx + 1}.jpg`, 'Foto en Alta Definición (JPG)', false)}
+                                    className="w-full py-1.5 px-2 rounded bg-sky-500 hover:bg-sky-400 text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors"
                                   >
-                                    <VolumeX className="w-2.5 h-2.5" />
-                                    <span>Sin Sonido</span>
+                                    <Download className="w-3 h-3" />
+                                    <span>Descargar Foto HD (JPG)</span>
                                   </button>
-                                  {item.music_url && (
+                                );
+                              }
+                              return (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => triggerDownload(
+                                      item.url || item.download_url || '',
+                                      `destacado_${data.username}_${itemIdx + 1}.mp4`,
+                                      isItemLive ? 'Video Animado MP4 (HD)' : 'Video Full HD 1080p',
+                                      false,
+                                      isItemLive ? { live: true, audioUrl: item.music_url } : undefined
+                                    )}
+                                    className="w-full py-1.5 px-2 rounded bg-sky-500 hover:bg-sky-400 text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors"
+                                  >
+                                    <Download className="w-3 h-3" />
+                                    <span>{isItemLive ? '✨ Video Animado' : 'MP4 Full HD'}</span>
+                                  </button>
+                                  <div className={`grid ${item.music_url ? 'grid-cols-2' : 'grid-cols-1'} gap-1`}>
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        triggerDownload(item.music_url || '', `destacado_audio_${data.username}_${itemIdx + 1}.mp3`, 'Audio MP3', true);
-                                      }}
+                                      onClick={() => triggerDownload(item.url || item.download_url || '', `destacado_mudo_${data.username}_${itemIdx + 1}.mp4`, 'Video Sin Sonido', false, { mute: true })}
                                       className="py-1 px-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-semibold flex items-center justify-center gap-0.5 transition-colors"
                                     >
-                                      <Music className="w-2.5 h-2.5" />
-                                      <span>Audio MP3</span>
+                                      <VolumeX className="w-2.5 h-2.5" />
+                                      <span>Sin Sonido</span>
+                                    </button>
+                                    {item.music_url && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          triggerDownload(item.music_url || '', `destacado_audio_${data.username}_${itemIdx + 1}.mp3`, 'Audio MP3', true);
+                                        }}
+                                        className="py-1 px-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-semibold flex items-center justify-center gap-0.5 transition-colors"
+                                      >
+                                        <Music className="w-2.5 h-2.5" />
+                                        <span>Audio MP3</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                  {isItemLive && (
+                                    <button
+                                      type="button"
+                                      onClick={() => triggerDownload(item.url || item.download_url || '', `destacado_foto_${data.username}_${itemIdx + 1}.jpg`, 'Foto Estática HD (JPG)', false)}
+                                      className="py-1 px-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-semibold flex items-center justify-center gap-1 transition-colors"
+                                    >
+                                      <ImageIcon className="w-2.5 h-2.5" />
+                                      <span>Foto (JPG)</span>
                                     </button>
                                   )}
-                                </div>
-                              </>
-                            )}
+                                </>
+                              );
+                            })()}
                           </div>
                         </div>
                       </div>
@@ -936,9 +1008,13 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                         </div>
                       )}
 
-                      <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-gradient-to-r from-pink-500 to-rose-600 font-extrabold text-[10px] text-white shadow-md flex items-center gap-1">
-                        {story.is_image ? <ImageIcon className="w-3 h-3" /> : <Film className="w-3 h-3" />}
-                        <span>{story.is_image ? 'FOTO' : 'VIDEO'} #{idx + 1}</span>
+                      <span className={`absolute top-2 left-2 px-2 py-0.5 rounded-md font-extrabold text-[10px] text-white shadow-md flex items-center gap-1 ${
+                        story.is_live_photo
+                          ? 'bg-gradient-to-r from-fuchsia-500 via-pink-500 to-rose-600'
+                          : 'bg-gradient-to-r from-pink-500 to-rose-600'
+                      }`}>
+                        {story.is_live_photo ? <Sparkles className="w-3 h-3" /> : (story.is_image ? <ImageIcon className="w-3 h-3" /> : <Film className="w-3 h-3" />)}
+                        <span>{story.is_live_photo ? 'LIVE' : (story.is_image ? 'FOTO' : 'VIDEO')} #{idx + 1}</span>
                       </span>
 
                       <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[10px] font-semibold text-white border border-white/10">
@@ -1009,8 +1085,8 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
             </p>
 
             <div className="flex flex-col gap-2.5">
-              {/* Para FOTOS: Única opción de Descarga en Alta Resolución (JPG genuino) - NUNCA mostrar MP3 */}
-              {formatModalItem.isImage ? (
+              {/* Caso A: FOTO ESTÁTICA (Única opción JPG genuino - NUNCA mostrar MP3 ni video) */}
+              {formatModalItem.isImage && !formatModalItem.isLivePhoto ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -1026,9 +1102,90 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                   </div>
                   <span className="text-[10px] uppercase font-black bg-white/20 px-2 py-0.5 rounded-full">Recomendado</span>
                 </button>
+              ) : formatModalItem.isLivePhoto ? (
+                <>
+                  {/* Caso B: FOTO ANIMADA (Live Photo en movimiento -> Video MP4 H.264 con audio o estática JPG) */}
+                  <div className="px-3 py-2 rounded-xl bg-pink-500/10 border border-pink-500/30 text-[11px] text-pink-300 font-medium flex items-center gap-2 mb-0.5">
+                    <Sparkles className="w-3.5 h-3.5 text-pink-400 shrink-0" />
+                    <span>Foto Animada (Live Photo) detectada. Se descargará el video real en movimiento (MP4 H.264).</span>
+                  </div>
+
+                  {/* Opción 1: Video Animado MP4 con Audio */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const dlUrl = formatModalItem.url || formatModalItem.downloadUrl;
+                      triggerDownload(dlUrl, `ByteDownloader_Animada_${data.username}_${formatModalItem.id}.mp4`, 'Video Animado MP4 (HD)', false, {
+                        live: true,
+                        audioUrl: formatModalItem.musicUrl || ''
+                      });
+                      setFormatModalItem(null);
+                    }}
+                    className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-pink-500 via-rose-500 to-purple-600 hover:opacity-95 text-white font-bold text-sm flex items-center justify-between shadow-lg shadow-pink-500/25 transition-all active:scale-95"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Film className="w-4 h-4" />
+                      <span>Video Animado MP4 (Con Audio HD)</span>
+                    </div>
+                    <span className="text-[10px] uppercase font-black bg-white/20 px-2 py-0.5 rounded-full">Animado</span>
+                  </button>
+
+                  {/* Opción 2: Video Animado Sin Sonido */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const dlUrl = formatModalItem.downloadUrl || formatModalItem.url;
+                      triggerDownload(dlUrl, `ByteDownloader_Animada_SinSonido_${data.username}_${formatModalItem.id}.mp4`, 'Video Animado Sin Sonido', false, { mute: true });
+                      setFormatModalItem(null);
+                    }}
+                    className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm flex items-center justify-between border border-slate-700 transition-all active:scale-95"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <VolumeX className="w-4 h-4 text-slate-400" />
+                      <span>Video Animado Sin Sonido (Mute)</span>
+                    </div>
+                    <span className="text-xs text-slate-400">MP4</span>
+                  </button>
+
+                  {/* Opción 3: Solo Audio MP3 */}
+                  {formatModalItem.musicUrl && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const audioSource = formatModalItem.musicUrl || formatModalItem.url;
+                        triggerDownload(audioSource, `ByteDownloader_Audio_${data.username}_${formatModalItem.id}.mp3`, 'Audio MP3 (Música Original)', true);
+                        setFormatModalItem(null);
+                      }}
+                      className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm flex items-center justify-between border border-slate-700 transition-all active:scale-95"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Music className="w-4 h-4 text-emerald-400" />
+                        <span>Solo Audio (MP3)</span>
+                      </div>
+                      <span className="text-xs text-emerald-400">MP3</span>
+                    </button>
+                  )}
+
+                  {/* Opción 4: Foto Estática JPG */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const imgSource = formatModalItem.url || formatModalItem.photoUrl || formatModalItem.downloadUrl;
+                      triggerDownload(imgSource, `ByteDownloader_${data.username}_${formatModalItem.id}.jpg`, 'Foto Estática HD (JPG)', false);
+                      setFormatModalItem(null);
+                    }}
+                    className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm flex items-center justify-between border border-slate-700 transition-all active:scale-95"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <ImageIcon className="w-4 h-4 text-sky-400" />
+                      <span>Foto Estática Original (JPG)</span>
+                    </div>
+                    <span className="text-xs text-sky-400">JPG</span>
+                  </button>
+                </>
               ) : (
                 <>
-                  {/* Para VIDEOS: Opción 1 - Video MP4 Compatible H.264 */}
+                  {/* Caso C: VIDEOS NORMALES: Opción 1 - Video MP4 Compatible H.264 */}
                   <button
                     type="button"
                     onClick={() => {
@@ -1044,11 +1201,11 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                     <span className="text-[10px] uppercase font-black bg-white/20 px-2 py-0.5 rounded-full">Recomendado</span>
                   </button>
 
-                  {/* Para VIDEOS: Opción 2 - Video Sin Sonido (Mute) */}
+                  {/* Opción 2 - Video Sin Sonido (Mute) */}
                   <button
                     type="button"
                     onClick={() => {
-                      triggerDownload(formatModalItem.downloadUrl || formatModalItem.url, `ByteDownloader_SinSonido_${data.username}_${formatModalItem.id}.mp4`, 'Video Sin Sonido (Mudo)', false);
+                      triggerDownload(formatModalItem.downloadUrl || formatModalItem.url, `ByteDownloader_SinSonido_${data.username}_${formatModalItem.id}.mp4`, 'Video Sin Sonido (Mudo)', false, { mute: true });
                       setFormatModalItem(null);
                     }}
                     className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm flex items-center justify-between border border-slate-700 transition-all active:scale-95"
@@ -1060,7 +1217,7 @@ export default function ProfileCard({ data, onSelectVideo, onBack }: ProfileCard
                     <span className="text-xs text-slate-400">MP4</span>
                   </button>
 
-                  {/* Para VIDEOS: Opción 3 - Audio MP3 (Solo si tiene pista de audio) */}
+                  {/* Opción 3 - Audio MP3 (Solo si tiene pista de audio) */}
                   {formatModalItem.musicUrl && (
                     <button
                       type="button"

@@ -524,14 +524,20 @@ export default function Home() {
               onSelectVideo={(videoItem) => {
                 if (typeof videoItem !== 'string' && (videoItem as any).is_story) {
                   const story = videoItem as ProfileStoryItem;
+                  const isLive = Boolean(story.is_live_photo || (story.live_images && story.live_images.length > 0));
+                  const isImg = !isLive && Boolean(story.is_image);
                   setResultData({
                     platform: 'tiktok',
                     title: story.title || `Historia de @${profileData.username}`,
                     thumbnail: story.thumbnail || profileData.avatar,
-                    videoUrl: story.download_url || story.url,
-                    audioUrl: '',
-                    mediaType: 'story',
-                    formatLabel: 'Historia de TikTok (24h)',
+                    videoUrl: isImg ? '' : (story.live_images?.[0] || story.download_url || story.url),
+                    audioUrl: isImg ? '' : (story.music_url || ''),
+                    photoUrl: isImg ? (story.images?.[0] || story.thumbnail || '') : (story.images?.[0] || ''),
+                    images: story.images || [],
+                    liveImages: story.live_images || [],
+                    isLivePhoto: isLive,
+                    mediaType: isLive ? 'live_photo' : (isImg ? 'photo' : 'story'),
+                    formatLabel: isLive ? 'Historia Animada (Live Photo · 3s)' : (isImg ? 'Historia en Foto (HD)' : 'Historia de TikTok (24h)'),
                     isStory: true,
                     author: profileData.nickname || `@${profileData.username}`
                   });

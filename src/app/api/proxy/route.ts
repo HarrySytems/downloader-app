@@ -9,6 +9,9 @@ export async function GET(request: Request) {
     let fileUrl: string = searchParams.get('url') || '';
     const filename = searchParams.get('filename') || 'media_file.mp4';
     const requestedFormat = searchParams.get('format') || '';
+    const isMute = searchParams.get('mute') === '1' || searchParams.get('mute') === 'true';
+    const isLiveParam = searchParams.get('live') === '1' || searchParams.get('live') === 'true';
+    let audioMuxUrl: string = searchParams.get('audio') || '';
 
     if (!fileUrl) {
       return new Response('URL parameter is required', { status: 400 });
@@ -62,7 +65,7 @@ export async function GET(request: Request) {
           console.error('TikWM photo extract in proxy error:', e);
         }
       } else {
-        // Para videos o audios: extraer stream compatible H.264
+        // Para videos, Fotos Animadas (live_images) o audios: extraer stream real H.264
         try {
           const twRes = await fetch('https://tikwm.com/api/', {
             method: 'POST',
@@ -73,13 +76,28 @@ export async function GET(request: Request) {
             const twData = await twRes.json();
             if (twData.code === 0 && twData.data) {
               const d = twData.data;
-              if (isMp3 && d.music) {
-                fileUrl = d.music.startsWith('http') ? d.music : `https://tikwm.com${d.music}`;
-              } else if (d.play) {
-                // SIEMPRE H.264 UNIVERSAL (avc1): compatibilidad total con Windows Media Player, iOS y Android sin requerir códecs HEVC
-                fileUrl = d.play.startsWith('http') ? d.play : `https://tikwm.com${d.play}`;
-              } else if (d.hdplay) {
-                fileUrl = d.hdplay.startsWith('http') ? d.hdplay : `https://tikwm.com${d.hdplay}`;
+              const resolveTw = (u: string) => (u ? (u.startsWith('http') ? u : `https://tikwm.com${u}`) : '');
+              const liveArr = (d.live_images || []).map((x: string) => resolveTw(x)).filter(Boolean);
+              const musicRes = resolveTw(d.music || '');
+              const isAudioUrl = (u?: string) => Boolean(
+                u && (u.includes('mime_type=audio') || u.includes('ies-music') || (d.music && u === d.music))
+              );
+
+              if (isMp3 && musicRes) {
+                fileUrl = musicRes;
+              } else if (liveArr.length > 0) {
+                // LIVE PHOTO DETECTADA: SIEMPRE usar el clip animado en movimiento + guardar música para muxing
+                fileUrl = liveArr[0];
+                if (musicRes && !audioMuxUrl && !isMute) {
+                  audioMuxUrl = musicRes;
+                }
+              } else if (d.play && !isAudioUrl(d.play)) {
+                // SIEMPRE H.264 UNIVERSAL (avc1) cuando play es video real
+                fileUrl = resolveTw(d.play);
+              } else if (d.hdplay && !isAudioUrl(d.hdplay)) {
+                fileUrl = resolveTw(d.hdplay);
+              } else if (d.images && d.images.length > 0) {
+                fileUrl = d.images[0];
               }
             }
           }
@@ -130,21 +148,44 @@ export async function GET(request: Request) {
       referer = 'https://tikvid.io/';
     }
 
-    const fetchHeaders: HeadersInit = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Referer': referer,
-    };
-
-    // Propagar Range si el cliente lo solicita (soporte de streaming en iPhone y Windows Media Player)
     const clientRange = request.headers.get('range');
-    if (clientRange && !isPhoto) {
-      fetchHeaders['Range'] = clientRange;
+    let response: Response | null = null;
+
+    // Si es Live Photo (para muxing de audio original / H.264) o video con Mute real, procesar en EC2
+    const shouldProcessMuxOrMute = !isPhoto && !isMp3 && (isMute || isLiveParam || Boolean(audioMuxUrl));
+    if (shouldProcessMuxOrMute) {
+      try {
+        const muxUrl = `http://3.19.208.2:8000/api/mux-live?video_url=${encodeURIComponent(fileUrl)}&audio_url=${encodeURIComponent(isMute ? '' : audioMuxUrl)}&mute=${isMute ? 'true' : 'false'}&filename=${encodeURIComponent(filename)}`;
+        const muxHeaders: HeadersInit = {};
+        if (clientRange) muxHeaders['Range'] = clientRange;
+        const muxRes = await fetch(muxUrl, {
+          cache: 'no-store',
+          headers: muxHeaders
+        });
+        if (muxRes.ok || muxRes.status === 206) {
+          response = muxRes;
+        }
+      } catch (muxErr) {
+        console.error('EC2 mux_live fallback triggered:', muxErr);
+      }
     }
 
-    const response = await fetch(fileUrl, {
-      cache: 'no-store',
-      headers: fetchHeaders
-    });
+    if (!response) {
+      const fetchHeaders: HeadersInit = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer': referer,
+      };
+
+      // Propagar Range si el cliente lo solicita (soporte de streaming en iPhone y Windows Media Player)
+      if (clientRange && !isPhoto) {
+        fetchHeaders['Range'] = clientRange;
+      }
+
+      response = await fetch(fileUrl, {
+        cache: 'no-store',
+        headers: fetchHeaders
+      });
+    }
 
     if (!response.ok && response.status !== 206) {
       return new Response('Error al recuperar el archivo multimedia', { status: response.status });

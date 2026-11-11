@@ -88,12 +88,21 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
   const thumbnailSrc = data.thumbnail || (data.images && data.images[0]) || '';
 
   // Helper de descarga vía proxy local
-  const handleDownload = async (url: string, filename: string, setLoader?: (val: boolean) => void, key?: string) => {
+  const handleDownload = async (url: string, filename: string, setLoader?: (val: boolean) => void, key?: string, extraParams?: Record<string, string>) => {
     try {
       if (setLoader) setLoader(true);
       if (key) setDownloadingIndex(prev => ({ ...prev, [key]: true }));
       
-      const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`;
+      const params = new URLSearchParams({
+        url,
+        filename
+      });
+      if (extraParams) {
+        for (const [k, v] of Object.entries(extraParams)) {
+          if (v) params.set(k, v);
+        }
+      }
+      const proxyUrl = `/api/proxy?${params.toString()}`;
       
       const link = document.createElement('a');
       link.href = proxyUrl;
@@ -140,7 +149,12 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
           
           {/* Badge Overlay en Thumbnail */}
           <span className={`absolute top-2.5 left-2.5 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${colors.badge} flex items-center gap-1.5 shadow-md`}>
-            {isStory ? (
+            {isStory && isLive ? (
+              <>
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Historia Animada</span>
+              </>
+            ) : isStory ? (
               <>
                 <Clock className="w-3.5 h-3.5" />
                 <span>Historia (24h)</span>
@@ -276,14 +290,16 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
               </button>
             )}
 
-            {/* 2. Botón Video (Animado, Normal o Galería en video H.264) */}
+            {/* 2. Botón Video (Animado con Audio, Normal o Galería en video H.264) */}
             {data.videoUrl && (
               <button
                 type="button"
                 onClick={() => handleDownload(
                   data.videoUrl!, 
-                  cleanFilename(data.title || (isStory ? 'historia' : (isLive ? 'live_video' : (isImages ? 'galeria_video' : 'video'))), 'mp4'), 
-                  setDownloadingVideo
+                  cleanFilename(data.title || (isLive ? 'live_video' : (isStory ? 'historia' : (isImages ? 'galeria_video' : 'video'))), 'mp4'), 
+                  setDownloadingVideo,
+                  undefined,
+                  isLive ? { live: '1', audio: data.audioUrl || '' } : undefined
                 )}
                 disabled={downloadingVideo}
                 className={`flex-1 min-w-[200px] flex items-center justify-center gap-2 py-3 px-6 rounded-xl font-bold text-sm text-white bg-gradient-to-r ${colors.gradient} hover:opacity-95 shadow-lg shadow-sky-500/20 active:scale-95 disabled:opacity-75 transition-all`}
@@ -297,10 +313,10 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
                   <>
                     <Download className="w-4 h-4 stroke-[2.5]" />
                     <span>
-                      {isStory 
-                        ? 'Descargar Historia (H.264 MP4)' 
-                        : (isLive 
-                            ? 'Descargar Video Animado (HD)' 
+                      {isLive 
+                        ? 'Descargar Video Animado (MP4 HD)' 
+                        : (isStory 
+                            ? 'Descargar Historia (H.264 MP4)' 
                             : (isImages 
                                 ? 'Descargar Video Completo (MP4)' 
                                 : 'Descargar Video Full HD (H.264)'))}
@@ -436,7 +452,8 @@ export default function VideoCard({ data, originalUrl }: VideoCardProps) {
                           liveVideo, 
                           cleanFilename(`${data.title || 'live_clip'}_${idx + 1}`, 'mp4'), 
                           undefined, 
-                          `vid_${idx}`
+                          `vid_${idx}`,
+                          { live: '1', audio: data.audioUrl || '' }
                         )}
                         disabled={isVideoLoading}
                         className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-pink-500 hover:bg-pink-400 text-white text-xs font-bold transition-all shadow-md shadow-pink-500/20 active:scale-95 disabled:opacity-50"

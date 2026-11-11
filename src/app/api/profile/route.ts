@@ -29,18 +29,22 @@ function buildHighlightsForUser(username: string, videos: any[]): ProfileHighlig
           items: []
         });
       }
-      const isImg = Boolean((v as any).is_image || (v as any).images?.length > 0 || v.duration === 'Foto' || v.duration === 0);
+      const isLive = Boolean((v as any).is_live_photo || ((v as any).live_images && (v as any).live_images.length > 0));
+      const isImg = !isLive && Boolean((v as any).is_image || (v as any).images?.length > 0 || v.duration === 'Foto' || v.duration === 0);
       mixMap.get(mId)!.items.push({
         id: v.id,
         url: v.url,
         title: v.title,
         thumbnail: v.thumbnail,
-        duration: isImg ? 'Foto' : (v.duration || '0:15'),
+        duration: isLive ? (v.duration && v.duration !== 'Foto' ? v.duration : 'Live 3s') : (isImg ? 'Foto' : (v.duration || '0:15')),
         views: v.views,
         likes: v.likes,
         download_url: v.play_url || v.url,
         music_url: isImg ? '' : (v.music_url || ''),
-        is_image: isImg
+        is_image: isImg,
+        is_live_photo: isLive,
+        live_images: (v as any).live_images || [],
+        images: (v as any).images || []
       });
     }
   }
@@ -62,18 +66,22 @@ function buildHighlightsForUser(username: string, videos: any[]): ProfileHighlig
         cover: v0.thumbnail || 'https://p16-common-sign.tiktokcdn-us.com/tos-useast2a-p-0037-euttp/o4IB1dBz9t1fCAQ4MOaBDpvAiTzuvksEToviI2~tplv-tiktokx-origin.image',
         count: Math.min(videos.length, 8),
         items: videos.slice(0, 8).map((v, i) => {
-          const isImg = Boolean((v as any).is_image || (v as any).images?.length > 0 || v.duration === 'Foto' || v.duration === 0);
+          const isLive = Boolean((v as any).is_live_photo || ((v as any).live_images && (v as any).live_images.length > 0));
+          const isImg = !isLive && Boolean((v as any).is_image || (v as any).images?.length > 0 || v.duration === 'Foto' || v.duration === 0);
           return {
             id: `hl_item_1_${i}`,
             url: v.url,
             title: v.title || `Destacado #1 - Item ${i + 1}`,
             thumbnail: v.thumbnail,
-            duration: isImg ? 'Foto' : (v.duration || '0:20'),
+            duration: isLive ? (v.duration && v.duration !== 'Foto' ? v.duration : 'Live 3s') : (isImg ? 'Foto' : (v.duration || '0:20')),
             views: v.views || '11.5K',
             likes: v.likes || '173',
             download_url: v.url,
             music_url: isImg ? '' : (v.music_url || ''),
-            is_image: isImg
+            is_image: isImg,
+            is_live_photo: isLive,
+            live_images: (v as any).live_images || [],
+            images: (v as any).images || []
           };
         })
       },
@@ -83,18 +91,22 @@ function buildHighlightsForUser(username: string, videos: any[]): ProfileHighlig
         cover: v1.thumbnail || 'https://p19-common-sign.tiktokcdn-us.com/tos-useast2a-p-0037-euttp/o0iEpfevXQlRBwiIB3xiA8Bm2D7iE4zEq0zVyv~tplv-tiktokx-origin.image',
         count: Math.min(Math.max(1, videos.length - 1), 6),
         items: videos.slice(1, 7).map((v, i) => {
-          const isImg = Boolean((v as any).is_image || (v as any).images?.length > 0 || v.duration === 'Foto' || v.duration === 0);
+          const isLive = Boolean((v as any).is_live_photo || ((v as any).live_images && (v as any).live_images.length > 0));
+          const isImg = !isLive && Boolean((v as any).is_image || (v as any).images?.length > 0 || v.duration === 'Foto' || v.duration === 0);
           return {
             id: `hl_item_2_${i}`,
             url: v.url,
             title: v.title || `Destacado #2 - Item ${i + 1}`,
             thumbnail: v.thumbnail,
-            duration: isImg ? 'Foto' : (v.duration || '0:23'),
+            duration: isLive ? (v.duration && v.duration !== 'Foto' ? v.duration : 'Live 3s') : (isImg ? 'Foto' : (v.duration || '0:23')),
             views: v.views || '11.4K',
             likes: v.likes || '178',
             download_url: v.url,
             music_url: isImg ? '' : (v.music_url || ''),
-            is_image: isImg
+            is_image: isImg,
+            is_live_photo: isLive,
+            live_images: (v as any).live_images || [],
+            images: (v as any).images || []
           };
         })
       },
@@ -104,18 +116,22 @@ function buildHighlightsForUser(username: string, videos: any[]): ProfileHighlig
         cover: v2.thumbnail || 'https://p16-common-sign.tiktokcdn-us.com/tos-useast2a-p-0037-euttp/oIZgTj6PAQrIehMVj2iDGeq7vEISEBFnBjWzfD~tplv-tiktokx-origin.image',
         count: Math.min(Math.max(1, videos.length - 2), 5),
         items: videos.slice(2, 7).map((v, i) => {
-          const isImg = Boolean((v as any).is_image || (v as any).images?.length > 0 || v.duration === 'Foto' || v.duration === 0);
+          const isLive = Boolean((v as any).is_live_photo || ((v as any).live_images && (v as any).live_images.length > 0));
+          const isImg = !isLive && Boolean((v as any).is_image || (v as any).images?.length > 0 || v.duration === 'Foto' || v.duration === 0);
           return {
             id: `hl_item_3_${i}`,
             url: v.url,
             title: v.title || `Destacado #3 - Item ${i + 1}`,
             thumbnail: v.thumbnail,
-            duration: isImg ? 'Foto' : (v.duration || '0:56'),
+            duration: isLive ? (v.duration && v.duration !== 'Foto' ? v.duration : 'Live 3s') : (isImg ? 'Foto' : (v.duration || '0:56')),
             views: v.views || '199.8K',
             likes: v.likes || '12.5K',
             download_url: v.url,
             music_url: isImg ? '' : (v.music_url || ''),
-            is_image: isImg
+            is_image: isImg,
+            is_live_photo: isLive,
+            live_images: (v as any).live_images || [],
+            images: (v as any).images || []
           };
         })
       }
@@ -125,18 +141,22 @@ function buildHighlightsForUser(username: string, videos: any[]): ProfileHighlig
   // 3. GENERACIÓN UNIVERSAL DE DESTACADOS CON TÍTULOS Y MINIATURAS
   // Para cualquier perfil con videos, crea carpetas destacadas elegantes
   const mapItem = (v: any, colIdx: number, itemIdx: number) => {
-    const isImg = Boolean((v as any).is_image || (v as any).images?.length > 0 || v.duration === 'Foto' || v.duration === 0);
+    const isLive = Boolean((v as any).is_live_photo || ((v as any).live_images && (v as any).live_images.length > 0));
+    const isImg = !isLive && Boolean((v as any).is_image || (v as any).images?.length > 0 || v.duration === 'Foto' || v.duration === 0);
     return {
       id: `hl_gen_${colIdx}_${itemIdx}_${v.id || itemIdx}`,
       url: v.url,
       title: v.title || `Publicación #${itemIdx + 1}`,
       thumbnail: v.thumbnail,
-      duration: isImg ? 'Foto' : (v.duration || '0:20'),
+      duration: isLive ? (v.duration && v.duration !== 'Foto' ? v.duration : 'Live 3s') : (isImg ? 'Foto' : (v.duration || '0:20')),
       views: v.views || '1.5K',
       likes: v.likes || '120',
       download_url: v.url,
       music_url: isImg ? '' : (v.music_url || ''),
-      is_image: isImg
+      is_image: isImg,
+      is_live_photo: isLive,
+      live_images: (v as any).live_images || [],
+      images: (v as any).images || []
     };
   };
 
@@ -198,25 +218,27 @@ async function fetchProfileFromTikWM(username: string, start: number = 1, count:
 
     const rawVideos = postsData.data.videos || [];
     const videos = rawVideos.map((item: any) => {
-      const images: string[] = item.images || [];
-      const hasImages = images.length > 0;
-      const isAudioPlay = item.play && (item.play.includes('mime_type=audio') || item.play.includes('ies-music') || item.play === item.music);
-      const isImagePost = hasImages || item.biz_tag === 'tt_photomode' || Boolean(item.duration === 0 && (!item.play || isAudioPlay));
+      const resolveTw = (u: string) => (u ? (u.startsWith('http') ? u : `https://tikwm.com${u}`) : '');
+      const images: string[] = (item.images || []).map(resolveTw).filter(Boolean);
+      const liveImages: string[] = (item.live_images || []).map(resolveTw).filter(Boolean);
+      const musicUrl = resolveTw(item.music || '');
+      const isAudioUrl = (u?: string) => Boolean(u && (u.includes('mime_type=audio') || u.includes('ies-music') || (item.music && u === item.music)));
+
+      const validPlayRaw = (!isAudioUrl(item.play) && item.play) || (!isAudioUrl(item.hdplay) && item.hdplay) || '';
+      const validPlayUrl = resolveTw(validPlayRaw);
+      const hasLive = liveImages.length > 0;
+      const isLivePhoto = hasLive || (images.length === 1 && Boolean(validPlayUrl));
+      const isImagePost = !isLivePhoto && !validPlayUrl && (images.length > 0 || item.biz_tag === 'tt_photomode' || item.duration === 0);
 
       const dur = item.duration || 0;
-      const durStr = isImagePost ? 'Foto' : (dur ? `${Math.floor(dur / 60)}:${(dur % 60).toString().padStart(2, '0')}` : '0:15');
-      const playUrl = item.play ? (item.play.startsWith('http') ? item.play : `https://tikwm.com${item.play}`) : '';
-      const hdPlayUrl = item.hdplay ? (item.hdplay.startsWith('http') ? item.hdplay : `https://tikwm.com${item.hdplay}`) : playUrl;
-      const musicUrl = item.music ? (item.music.startsWith('http') ? item.music : `https://tikwm.com${item.music}`) : '';
-
-      // Para videos: PRIORIZAR playUrl que es H.264 compatible nativo con Windows Media Player (hdPlayUrl suele ser HEVC)
-      const validPlayUrl = isImagePost ? '' : (playUrl || hdPlayUrl);
-      const cover = (hasImages && images[0]) || item.cover || item.origin_cover || '';
+      const durStr = isLivePhoto ? (dur ? `Live ${dur}s` : 'Live 3s') : (isImagePost ? 'Foto' : (dur ? `${Math.floor(dur / 60)}:${(dur % 60).toString().padStart(2, '0')}` : '0:15'));
+      const finalPlayUrl = isLivePhoto ? (liveImages[0] || validPlayUrl) : (isImagePost ? '' : validPlayUrl);
+      const cover = (images.length > 0 && images[0]) || item.cover || item.origin_cover || '';
 
       return {
         id: item.video_id,
         url: isImagePost ? `https://www.tiktok.com/@${username}/photo/${item.video_id}` : `https://www.tiktok.com/@${username}/video/${item.video_id}`,
-        title: item.title || (isImagePost ? `Foto de @${username}` : `Video de @${username}`),
+        title: item.title || (isLivePhoto ? `Foto Animada de @${username}` : (isImagePost ? `Foto de @${username}` : `Video de @${username}`)),
         thumbnail: cover,
         duration: durStr,
         views: formatCountHelper(item.play_count),
@@ -224,16 +246,18 @@ async function fetchProfileFromTikWM(username: string, start: number = 1, count:
         raw_views: item.play_count || 0,
         raw_likes: item.digg_count || 0,
         timestamp: item.create_time || 0,
-        play_url: validPlayUrl,
-        download_url: isImagePost ? (images[0] || cover) : validPlayUrl,
+        play_url: finalPlayUrl,
+        download_url: isLivePhoto ? (liveImages[0] || validPlayUrl) : (isImagePost ? (images[0] || cover) : validPlayUrl),
         music_url: isImagePost ? '' : musicUrl,
         is_image: isImagePost,
-        images: isImagePost ? (images.length > 0 ? images : [cover]) : [],
+        is_live_photo: isLivePhoto,
+        live_images: liveImages,
+        images: (isImagePost || isLivePhoto) ? (images.length > 0 ? images : (cover ? [cover] : [])) : [],
         mix_info: item.mix_info || null
       };
     });
 
-    // 2. Historias activas completas (paginación con cursor y soporte para fotos y videos)
+    // 2. Historias activas completas (paginación con cursor y soporte para Live Photos, fotos y videos)
     let stories: any[] = [];
     if (start === 1) {
       try {
@@ -259,23 +283,28 @@ async function fetchProfileFromTikWM(username: string, start: number = 1, count:
             if (!sId || seenStoryIds.has(sId)) continue;
             seenStoryIds.add(sId);
 
-            const images: string[] = s.images || [];
-            const isImage = images.length > 0 || s.biz_tag === 'tt_photomode_story';
-            const sDur = s.duration || 0;
-            const durStr = isImage ? 'Foto' : (sDur ? `${Math.floor(sDur / 60)}:${(sDur % 60).toString().padStart(2, '0')}` : '0:15');
-            const cover = (isImage && images.length > 0 ? images[0] : null) || s.cover || s.origin_cover || '';
+            const resolveTw = (u: string) => (u ? (u.startsWith('http') ? u : `https://tikwm.com${u}`) : '');
+            const images: string[] = (s.images || []).map(resolveTw).filter(Boolean);
+            const liveImages: string[] = (s.live_images || []).map(resolveTw).filter(Boolean);
+            const musicUrl = resolveTw(s.music || '');
+            const isAudioUrl = (u?: string) => Boolean(u && (u.includes('mime_type=audio') || u.includes('ies-music') || (s.music && u === s.music)));
+            const validPlayRaw = (!isAudioUrl(s.play) && s.play) || (!isAudioUrl(s.wmplay) && s.wmplay) || (!isAudioUrl(s.hdplay) && s.hdplay) || '';
+            const validPlay = resolveTw(validPlayRaw);
 
-            let downloadUrl = '';
-            if (isImage) {
-              downloadUrl = `https://www.tiktok.com/@${username}/photo/${sId}`;
-            } else if (s.play) {
-              downloadUrl = s.play.startsWith('http') ? s.play : `https://tikwm.com${s.play}`;
-            }
+            const isLivePhoto = liveImages.length > 0 || (images.length === 1 && Boolean(validPlay));
+            const isImage = !isLivePhoto && !validPlay && (images.length > 0 || s.biz_tag === 'tt_photomode_story');
+            const sDur = s.duration || 0;
+            const durStr = isLivePhoto ? (sDur ? `Live ${sDur}s` : 'Live 3s') : (isImage ? 'Foto' : (sDur ? `${Math.floor(sDur / 60)}:${(sDur % 60).toString().padStart(2, '0')}` : '0:15'));
+            const cover = ((isImage || isLivePhoto) && images.length > 0 ? images[0] : null) || s.cover || s.origin_cover || '';
+
+            const canonicalUrl = isImage
+              ? `https://www.tiktok.com/@${username}/photo/${sId}`
+              : `https://www.tiktok.com/@${username}/video/${sId}`;
 
             stories.push({
               id: sId,
-              url: isImage ? `https://www.tiktok.com/@${username}/photo/${sId}` : `https://www.tiktok.com/@${username}/video/${sId}`,
-              title: s.title || (isImage ? `Historia en Foto de @${username}` : `Historia de @${username}`),
+              url: canonicalUrl,
+              title: s.title || (isLivePhoto ? `Historia Animada de @${username}` : (isImage ? `Historia en Foto de @${username}` : `Historia de @${username}`)),
               thumbnail: cover,
               duration: durStr,
               views: formatCountHelper(s.play_count),
@@ -283,9 +312,12 @@ async function fetchProfileFromTikWM(username: string, start: number = 1, count:
               created_at: s.create_time || 0,
               is_story: true,
               is_image: isImage,
+              is_live_photo: isLivePhoto,
               images: images,
-              download_url: downloadUrl,
-              music_url: s.music ? (s.music.startsWith('http') ? s.music : `https://tikwm.com${s.music}`) : ''
+              live_images: liveImages,
+              download_url: isLivePhoto ? (liveImages[0] || validPlay || canonicalUrl) : canonicalUrl,
+              music_url: isImage ? '' : musicUrl,
+              media_type: isLivePhoto ? 'live_photo' : (isImage ? 'photo' : 'video')
             });
           }
 
@@ -411,20 +443,24 @@ export async function POST(request: Request) {
       if (resp.ok) {
         const data = await resp.json();
 
-        // 1. Sanitizar historias para garantizar enlace canónico de alta calidad y JPEG compatible
+        // 1. Sanitizar historias preservando Fotos Animadas (Live Photos), Fotos estáticas y Videos HD
         if (data.stories && Array.isArray(data.stories)) {
           data.stories = data.stories.map((s: any) => {
-            const isImg = Boolean(s.is_image || (s.images && s.images.length > 0) || s.duration === 'Foto' || s.duration === 0);
-            const canonicalUrl = isImg 
-              ? `https://www.tiktok.com/@${username}/photo/${s.id}` 
+            const isLive = Boolean(s.is_live_photo || (s.live_images && s.live_images.length > 0));
+            const isImg = !isLive && Boolean(s.is_image || (s.images && s.images.length > 0) || s.duration === 'Foto' || s.duration === 0);
+            const canonicalUrl = isImg
+              ? `https://www.tiktok.com/@${username}/photo/${s.id}`
               : `https://www.tiktok.com/@${username}/video/${s.id}`;
             return {
               ...s,
+              is_live_photo: isLive,
+              live_images: s.live_images || [],
               is_image: isImg,
-              duration: isImg ? 'Foto' : (s.duration || '0:15'),
+              duration: isLive ? (s.duration && s.duration !== 'Foto' ? s.duration : 'Live 3s') : (isImg ? 'Foto' : (s.duration || '0:15')),
               url: canonicalUrl,
-              download_url: canonicalUrl, // Garantiza que triggerDownload obtenga el JPEG JFIF genuino de 357KB
-              music_url: isImg ? '' : (s.music_url || '')
+              download_url: isLive ? (s.live_images?.[0] || s.download_url || canonicalUrl) : canonicalUrl,
+              music_url: isImg ? '' : (s.music_url || ''),
+              media_type: isLive ? 'live_photo' : (isImg ? 'photo' : 'video')
             };
           });
         }
@@ -432,11 +468,14 @@ export async function POST(request: Request) {
         // 2. Sanitizar videos de publicaciones
         if (data.videos && Array.isArray(data.videos)) {
           data.videos = data.videos.map((v: any) => {
-            const isImg = Boolean(v.is_image || (v.images && v.images.length > 0) || v.duration === 'Foto' || v.duration === 0);
+            const isLive = Boolean(v.is_live_photo || (v.live_images && v.live_images.length > 0));
+            const isImg = !isLive && Boolean(v.is_image || (v.images && v.images.length > 0) || v.duration === 'Foto' || v.duration === 0);
             return {
               ...v,
+              is_live_photo: isLive,
+              live_images: v.live_images || [],
               is_image: isImg,
-              duration: isImg ? 'Foto' : (v.duration || '0:15'),
+              duration: isLive ? (v.duration && v.duration !== 'Foto' ? v.duration : 'Live 3s') : (isImg ? 'Foto' : (v.duration || '0:15')),
               music_url: isImg ? '' : (v.music_url || '')
             };
           });
