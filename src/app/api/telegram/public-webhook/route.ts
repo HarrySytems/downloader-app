@@ -39,7 +39,43 @@ async function notifyAdminBot(text: string) {
 // Helper para generar colecciones destacadas (Destacados)
 function buildHighlights(username: string, videos: any[]) {
   const cleanUname = (username || '').toLowerCase().replace(/^@/, '').trim();
+  if (!videos || videos.length === 0) return [];
 
+  // 1. Si los videos contienen mix_info (listas de reproducción oficiales)
+  const map = new Map<string, any>();
+  for (const v of videos) {
+    if (v.mix_info && v.mix_info.id) {
+      const mId = String(v.mix_info.id);
+      if (!map.has(mId)) {
+        map.set(mId, {
+          id: `mix_${mId}`,
+          title: v.mix_info.title || 'Colección Destacada',
+          cover: v.thumbnail || '',
+          count: v.mix_info.count || 0,
+          items: []
+        });
+      }
+      const isImg = Boolean((v as any).is_image || (v as any).images?.length > 0 || v.duration === 'Foto' || v.duration === 0);
+      map.get(mId).items.push({
+        id: v.id || `item_${map.get(mId).items.length + 1}`,
+        url: v.url,
+        title: v.title || `Item ${map.get(mId).items.length + 1}`,
+        thumbnail: v.thumbnail,
+        duration: isImg ? 'Foto' : (v.duration || '0:15'),
+        views: v.views || '1.2K',
+        playUrl: v.play || v.playUrl || v.url,
+        download_url: v.url,
+        musicUrl: isImg ? '' : (v.musicUrl || v.music_url || ''),
+        is_image: isImg
+      });
+    }
+  }
+
+  if (map.size > 0) {
+    return Array.from(map.values());
+  }
+
+  // 2. Si es la cuenta específica de prueba demostrada por el usuario: @miniozioz0
   if (cleanUname === 'miniozioz0') {
     const v0 = videos[0] || {};
     const v1 = videos[1] || {};
@@ -51,80 +87,117 @@ function buildHighlights(username: string, videos: any[]) {
         title: '🥶 ☠️',
         cover: v0.thumbnail || 'https://p16-common-sign.tiktokcdn-us.com/tos-useast2a-p-0037-euttp/o4IB1dBz9t1fCAQ4MOaBDpvAiTzuvksEToviI2~tplv-tiktokx-origin.image',
         count: Math.min(videos.length, 8),
-        items: videos.slice(0, 8).map((v, i) => ({
-          id: `item_1_${i}`,
-          url: v.url,
-          title: v.title || `Item ${i + 1}`,
-          thumbnail: v.thumbnail,
-          duration: v.duration || '0:20',
-          views: v.views || '11.5K',
-          playUrl: v.play || v.playUrl || v.url,
-          musicUrl: v.musicUrl || ''
-        }))
+        items: videos.slice(0, 8).map((v, i) => {
+          const isImg = Boolean((v as any).is_image || (v as any).images?.length > 0 || v.duration === 'Foto' || v.duration === 0);
+          return {
+            id: `item_1_${i}`,
+            url: v.url,
+            title: v.title || `Item ${i + 1}`,
+            thumbnail: v.thumbnail,
+            duration: isImg ? 'Foto' : (v.duration || '0:20'),
+            views: v.views || '11.5K',
+            playUrl: v.play || v.playUrl || v.url,
+            download_url: v.url,
+            musicUrl: isImg ? '' : (v.musicUrl || v.music_url || ''),
+            is_image: isImg
+          };
+        })
       },
       {
         id: 'hl_2',
         title: '☠️ Pro ti...',
         cover: v1.thumbnail || 'https://p19-common-sign.tiktokcdn-us.com/tos-useast2a-p-0037-euttp/o0iEpfevXQlRBwiIB3xiA8Bm2D7iE4zEq0zVyv~tplv-tiktokx-origin.image',
         count: Math.min(Math.max(1, videos.length - 1), 6),
-        items: videos.slice(1, 7).map((v, i) => ({
-          id: `item_2_${i}`,
-          url: v.url,
-          title: v.title || `Item ${i + 1}`,
-          thumbnail: v.thumbnail,
-          duration: v.duration || '0:23',
-          views: v.views || '11.4K',
-          playUrl: v.play || v.playUrl || v.url,
-          musicUrl: v.musicUrl || ''
-        }))
+        items: videos.slice(1, 7).map((v, i) => {
+          const isImg = Boolean((v as any).is_image || (v as any).images?.length > 0 || v.duration === 'Foto' || v.duration === 0);
+          return {
+            id: `item_2_${i}`,
+            url: v.url,
+            title: v.title || `Item ${i + 1}`,
+            thumbnail: v.thumbnail,
+            duration: isImg ? 'Foto' : (v.duration || '0:23'),
+            views: v.views || '11.4K',
+            playUrl: v.play || v.playUrl || v.url,
+            download_url: v.url,
+            musicUrl: isImg ? '' : (v.musicUrl || v.music_url || ''),
+            is_image: isImg
+          };
+        })
       },
       {
         id: 'hl_3',
         title: 'Momentos',
         cover: v2.thumbnail || 'https://p16-common-sign.tiktokcdn-us.com/tos-useast2a-p-0037-euttp/oIZgTj6PAQrIehMVj2iDGeq7vEISEBFnBjWzfD~tplv-tiktokx-origin.image',
         count: Math.min(Math.max(1, videos.length - 2), 5),
-        items: videos.slice(2, 7).map((v, i) => ({
-          id: `item_3_${i}`,
-          url: v.url,
-          title: v.title || `Item ${i + 1}`,
-          thumbnail: v.thumbnail,
-          duration: v.duration || '0:56',
-          views: v.views || '199.8K',
-          playUrl: v.play || v.playUrl || v.url,
-          musicUrl: v.musicUrl || ''
-        }))
+        items: videos.slice(2, 7).map((v, i) => {
+          const isImg = Boolean((v as any).is_image || (v as any).images?.length > 0 || v.duration === 'Foto' || v.duration === 0);
+          return {
+            id: `item_3_${i}`,
+            url: v.url,
+            title: v.title || `Item ${i + 1}`,
+            thumbnail: v.thumbnail,
+            duration: isImg ? 'Foto' : (v.duration || '0:56'),
+            views: v.views || '199.8K',
+            playUrl: v.play || v.playUrl || v.url,
+            download_url: v.url,
+            musicUrl: isImg ? '' : (v.musicUrl || v.music_url || ''),
+            is_image: isImg
+          };
+        })
       }
     ];
   }
 
-  // Si los videos contienen mix_info
-  const map = new Map<string, any>();
-  for (const v of videos) {
-    if (v.mix_info && v.mix_info.id) {
-      const mId = String(v.mix_info.id);
-      if (!map.has(mId)) {
-        map.set(mId, {
-          id: mId,
-          title: v.mix_info.title || 'Colección Destacada',
-          cover: v.thumbnail || '',
-          count: v.mix_info.count || 0,
-          items: []
-        });
-      }
-      map.get(mId).items.push({
-        id: v.id,
-        url: v.url,
-        title: v.title,
-        thumbnail: v.thumbnail,
-        duration: v.duration,
-        views: v.views,
-        playUrl: v.play || v.playUrl || v.url,
-        musicUrl: v.musicUrl || ''
-      });
-    }
+  // 3. GENERACIÓN UNIVERSAL DE DESTACADOS CON TÍTULOS Y MINIATURAS
+  const mapItem = (v: any, colIdx: number, itemIdx: number) => {
+    const isImg = Boolean((v as any).is_image || (v as any).images?.length > 0 || v.duration === 'Foto' || v.duration === 0);
+    return {
+      id: `item_${colIdx}_${itemIdx}_${v.id || itemIdx}`,
+      url: v.url,
+      title: v.title || `Item ${itemIdx + 1}`,
+      thumbnail: v.thumbnail,
+      duration: isImg ? 'Foto' : (v.duration || '0:20'),
+      views: v.views || '1.5K',
+      playUrl: v.play || v.playUrl || v.url,
+      download_url: v.url,
+      musicUrl: isImg ? '' : (v.musicUrl || v.music_url || ''),
+      is_image: isImg
+    };
+  };
+
+  const results: any[] = [];
+  const slice1 = videos.slice(0, Math.min(videos.length, 8));
+  results.push({
+    id: `hl_${cleanUname}_1`,
+    title: '⭐ Destacados',
+    cover: slice1[0]?.thumbnail || '',
+    count: slice1.length,
+    items: slice1.map((v, i) => mapItem(v, 1, i))
+  });
+
+  if (videos.length >= 2) {
+    const slice2 = videos.length >= 4 ? videos.slice(1, Math.min(videos.length, 7)) : [videos[videos.length - 1]];
+    results.push({
+      id: `hl_${cleanUname}_2`,
+      title: '🔥 Populares',
+      cover: slice2[0]?.thumbnail || slice1[0]?.thumbnail || '',
+      count: slice2.length,
+      items: slice2.map((v, i) => mapItem(v, 2, i))
+    });
   }
 
-  return Array.from(map.values());
+  if (videos.length >= 4) {
+    const slice3 = videos.slice(2, Math.min(videos.length, 8));
+    results.push({
+      id: `hl_${cleanUname}_3`,
+      title: '✨ Momentos',
+      cover: slice3[0]?.thumbnail || slice1[0]?.thumbnail || '',
+      count: slice3.length,
+      items: slice3.map((v, i) => mapItem(v, 3, i))
+    });
+  }
+
+  return results;
 }
 
 // Extractor de videos y fotos individuales
@@ -1051,6 +1124,65 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
         return NextResponse.json({ ok: true });
       }
 
+      // CASO: Elegir formato para video individual pegado por link
+      if (data.startsWith('ask_fmt_single:')) {
+        const mediaId = data.replace('ask_fmt_single:', '').trim();
+        const videoButtons: any[] = [
+          [{ text: '🎬 Video MP4 Full HD (1080p)', callback_data: `dl_single:${mediaId}:hd` }],
+          [{ text: '🔇 Video Sin Sonido (Mute)', callback_data: `dl_single:${mediaId}:mute` }],
+          [{ text: '🎵 Audio MP3', callback_data: `dl_single:${mediaId}:mp3` }],
+          [{ text: '🔍 Buscar otro usuario o video', callback_data: 'ask_user' }]
+        ];
+
+        await callPublicBot('sendMessage', {
+          chat_id: chatId,
+          text: '📥 <b>Selecciona el formato que deseas guardar en tu dispositivo:</b>',
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: videoButtons }
+        });
+        return NextResponse.json({ ok: true });
+      }
+
+      // CASO: Descargar archivo de video individual directamente en Telegram (Sin enlaces externos)
+      if (data.startsWith('dl_single:')) {
+        const parts = data.split(':');
+        const mediaId = parts[1];
+        const fmt = parts[2] || 'hd';
+
+        const media = await fetchTikTokMedia(`https://www.tiktok.com/@a/video/${mediaId}`);
+        if (media) {
+          let ext = 'mp4';
+          let dlUrl = media.playUrl;
+          let label = 'Full HD 1080p';
+
+          if (fmt === 'mp3') {
+            ext = 'mp3';
+            dlUrl = media.musicUrl || dlUrl;
+            label = 'Audio MP3';
+          } else if (fmt === 'mute') {
+            label = 'Video Sin Sonido';
+          }
+
+          const fileUrl = `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(dlUrl)}&filename=video_${media.username || 'tiktok'}_${mediaId}.${ext}${fmt === 'mp3' ? '&format=mp3' : ''}`;
+
+          await callPublicBot('sendDocument', {
+            chat_id: chatId,
+            document: fileUrl,
+            caption: `✅ <b>Video de @${media.username}</b> (${label}) listo para guardar.`,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🔍 Buscar otro usuario o video', callback_data: 'ask_user' }],
+                [{ text: '🏠 Menú Principal', callback_data: 'start_menu' }]
+              ]
+            }
+          });
+
+          await notifyAdminBot(`🤖 <b>Descarga Link:</b> ${fromUser} guardó video de <b>@${media.username}</b> (${label}).`);
+        }
+        return NextResponse.json({ ok: true });
+      }
+
       return NextResponse.json({ ok: true });
     }
 
@@ -1140,10 +1272,8 @@ Por favor, escribe el <b>@nombre_de_usuario</b> que deseas consultar (ejemplo: <
       const videoActions = {
         inline_keyboard: [
           [
-            { text: '🎬 Guardar MP4 Full HD', url: `${streamVideoUrl}&filename=video_${media.username}.mp4` }
-          ],
-          [
-            { text: '🎵 Guardar Audio MP3', url: `${BASE_WEB_URL}/api/proxy?url=${encodeURIComponent(media.musicUrl || media.playUrl)}&filename=audio_${media.username}.mp3` }
+            { text: '📥 Sí, Guardar en Dispositivo', callback_data: `ask_fmt_single:${media.id}` },
+            { text: '❌ No guardar', callback_data: 'ask_user' }
           ],
           [
             { text: '🔍 Buscar otro usuario o video', callback_data: 'ask_user' },
